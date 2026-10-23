@@ -162,6 +162,46 @@ class SoundManager {
       osc.stop(t + (idx === notes.length - 1 ? 0.65 : 0.2));
     });
   }
+
+  /**
+   * 🏰 四隅エリア解放（要塞出現）時の大迫力エフェクト音
+   */
+  public playZoneUnlock() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+
+    // 重低音の衝撃波
+    const bassOsc = this.ctx.createOscillator();
+    const bassGain = this.ctx.createGain();
+    bassOsc.type = 'sawtooth';
+    bassOsc.frequency.setValueAtTime(140, t);
+    bassOsc.frequency.exponentialRampToValueAtTime(30, t + 0.4);
+    bassGain.gain.setValueAtTime(0.6, t);
+    bassGain.gain.exponentialRampToValueAtTime(0.01, t + 0.45);
+    bassOsc.connect(bassGain);
+    bassGain.connect(this.ctx.destination);
+    bassOsc.start(t);
+    bassOsc.stop(t + 0.45);
+
+    // キラーンと響く覚醒音
+    [440, 554, 659, 880].forEach((freq, idx) => {
+      if (!this.ctx) return;
+      const noteT = t + 0.1 + idx * 0.08;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, noteT);
+      gain.gain.setValueAtTime(0.35, noteT);
+      gain.gain.exponentialRampToValueAtTime(0.001, noteT + 0.3);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(noteT);
+      osc.stop(noteT + 0.35);
+    });
+  }
 }
 
 export const soundManager = new SoundManager();

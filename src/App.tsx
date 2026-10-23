@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AiLevel,
-  BoardState,
+  CellValue,
   GameMode,
   Move,
   Player,
   Position,
-  Score
+  RuleType,
+  Score,
+  UnlockedZones
 } from './types/othello';
 import {
   applyMove,
   countScore,
   createInitialBoard,
+  createInitialUnlockedZones,
   getOpponent,
   getValidMoves,
   getWinner,
@@ -28,18 +31,24 @@ import { OnlineModal } from './components/OnlineModal';
 import { GameOverModal } from './components/GameOverModal';
 
 interface HistoryItem {
-  board: BoardState;
+  board: CellValue[][];
+  unlocked: UnlockedZones;
   turn: Player;
   lastMove: Position | null;
 }
 
 export const App: React.FC = () => {
-  const [board, setBoard] = useState<BoardState>(createInitialBoard());
+  // ルール（デフォルトは四隅要塞拡張オセロ）
+  const [rule, setRule] = useState<RuleType>('fortress');
+  const [unlocked, setUnlocked] = useState<UnlockedZones>(createInitialUnlockedZones('fortress'));
+  const [board, setBoard] = useState<CellValue[][]>(createInitialBoard('fortress'));
   const [turn, setTurn] = useState<Player>('black');
   const [mode, setMode] = useState<GameMode>('cpu');
   const [aiLevel, setAiLevel] = useState<AiLevel>('medium');
   const [lastMove, setLastMove] = useState<Position | null>(null);
   const [flippingPositions, setFlippingPositions] = useState<Set<string>>(new Set());
+  const [newlyUnlockedZone, setNewlyUnlockedZone] = useState<keyof UnlockedZones | null>(null);
+  const [zoneAlertMessage, setZoneAlertMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [passMessage, setPassMessage] = useState<string | null>(null);
@@ -57,25 +66,29 @@ export const App: React.FC = () => {
   const [myOnlineColor, setMyOnlineColor] = useState<Player>('black');
 
   // スコアと有効手
-  const score: Score = countScore(board);
-  const validMoves: Move[] = getValidMoves(board, turn);
-  const isFinished = checkIsGameOver(board);
-  const winner = isFinished ? getWinner(board) : 'draw';
+  const score: Score = countScore(board, rule, unlocked);
+  const validMoves: Move[] = getValidMoves(board, turn, rule, unlocked);
+  const isFinished = checkIsGameOver(board, rule, unlocked);
+  const winner = isFinished ? getWinner(board, rule, unlocked) : 'draw';
 
-  // タイムアウトref
   const passTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ゲームリセット
-  const handleResetGame = useCallback(() => {
-    setBoard(createInitialBoard());
+  const handleResetGame = useCallback((targetRule?: RuleType) => {
+    const r = targetRule || rule;
+    setBoard(createInitialBoard(r));
+    setUnlocked(createInitialUnlockedZones(r));
     setTurn('black');
     setLastMove(null);
     setFlippingPositions(new Set());
+    setNewlyUnlockedZone(null);
+    setZoneAlertMessage(null);
     setHistory([]);
     setIsAiThinking(false);
     setPassMessage(null);
     setIsGameOverModalOpen(false);
-  }, []);
+  }, [rule]);
 
   // オンラインP2Pの初期化
   useEffect(() => {
@@ -91,8 +104,11 @@ export const App: React.FC = () => {
       onMessage: (msg) => {
         if (msg.type === 'ready') {
           setMyOnlineColor(msg.color);
+          if (msg.rule) {
+            setRule(msg.rule);
+            handleResetGame(msg.rule);
+          }
         } else if (msg.type === 'move') {
-          // 相手の手を実行
           executeMove(msg.move.row, msg.move.col, msg.move.player, false);
         } else if (msg.type === 'restart') {
           handleResetGame();
@@ -103,13 +119,15 @@ export const App: React.FC = () => {
       },
       onOpponentConnected: () => {
         setMyOnlineColor(p2pManager.isHost ? 'black' : 'white');
+        if (p2pManager.isHost) {
+          p2pManager.sendMessage({ type: 'ready', color: 'white', rule });
+        }
       },
       onOpponentDisconnected: () => {
         alert('対戦相手との接続が切断されました。');
       }
     });
 
-    // URLクエリパラメータに ?room=XXXX があるかチェック（招待URLから開かれた場合）
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('room');
@@ -123,27 +141,53 @@ export const App: React.FC = () => {
     return () => {
       p2pManager.cleanup();
     };
-  }, [handleResetGame]);
+  }, [handleResetGame, rule]);
 
   // 石を打つ処理
   const executeMove = useCallback(
     (row: number, col: number, player: Player, sendToPeer: boolean = true) => {
-      const { nextBoard, flipped } = applyMove(board, row, col, player);
+      const { nextBoard, flipped, nextUnlocked, newZoneUnlocked } = applyMove(
+        board,
+        row,
+        col,
+        player,
+        rule,
+        unlocked
+      );
 
       // 打石音と反転音
       soundManager.playPlaceDisc();
       soundManager.playFlipDiscs(flipped.length);
 
-      // 反転アニメーション用座標をセット
+      // 🏰 四隅エリアが新しく出現した場合！
+      if (newZoneUnlocked) {
+        soundManager.playZoneUnlock();
+        setNewlyUnlockedZone(newZoneUnlocked);
+        const zoneNames = {
+          topLeft: '左上',
+          topRight: '右上',
+          bottomLeft: '左下',
+          bottomRight: '右下'
+        };
+        setZoneAlertMessage(`⚠️ 警報！${zoneNames[newZoneUnlocked]}の3×3新エリアが解放されました！`);
+        if (zoneTimerRef.current) clearTimeout(zoneTimerRef.current);
+        zoneTimerRef.current = setTimeout(() => {
+          setZoneAlertMessage(null);
+          setNewlyUnlockedZone(null);
+        }, 4000);
+      }
+
+      // 反転アニメーション用座標
       const flipSet = new Set<string>();
       flipped.forEach((p) => flipSet.add(`${p.row},${p.col}`));
       setFlippingPositions(flipSet);
       setTimeout(() => setFlippingPositions(new Set()), 400);
 
-      // 履歴保存（アンドゥ用）
-      setHistory((prev) => [...prev, { board, turn: player, lastMove }]);
+      // 履歴保存
+      setHistory((prev) => [...prev, { board, unlocked, turn: player, lastMove }]);
 
       setBoard(nextBoard);
+      setUnlocked(nextUnlocked);
       setLastMove({ row, col });
 
       // オンライン対戦時は相手に着手情報を送信
@@ -156,17 +200,15 @@ export const App: React.FC = () => {
 
       // 次の手番を決定
       const nextPlayer = getOpponent(player);
-      const nextMoves = getValidMoves(nextBoard, nextPlayer);
+      const nextMoves = getValidMoves(nextBoard, nextPlayer, rule, nextUnlocked);
 
       if (nextMoves.length > 0) {
-        // 次のプレイヤーに合法手がある場合、通常の手番交代
         setTurn(nextPlayer);
         setPassMessage(null);
       } else {
         // 次のプレイヤーに合法手がない（パス発生）
-        const myNextMoves = getValidMoves(nextBoard, player);
+        const myNextMoves = getValidMoves(nextBoard, player, rule, nextUnlocked);
         if (myNextMoves.length > 0) {
-          // パス発生！手番は元のプレイヤーに戻る
           soundManager.playPass();
           const passPlayerName =
             mode === 'cpu'
@@ -181,27 +223,21 @@ export const App: React.FC = () => {
           if (passTimerRef.current) clearTimeout(passTimerRef.current);
           passTimerRef.current = setTimeout(() => setPassMessage(null), 3000);
 
-          setTurn(player); // 手番維持
+          setTurn(player);
         } else {
-          // 双方ともに合法手がない → 終局（Game Over）
           setPassMessage(null);
         }
       }
     },
-    [board, lastMove, mode]
+    [board, lastMove, mode, rule, unlocked]
   );
 
   // マスクリック時のハンドラ
   const handleCellClick = (row: number, col: number) => {
     if (isAiThinking || isFinished) return;
-
-    // オンライン対戦時、自分の手番でなければ打てない
     if (mode === 'online' && turn !== myOnlineColor) return;
-
-    // CPU対戦時、CPUの番（白）は打てない
     if (mode === 'cpu' && turn !== 'black') return;
 
-    // 合法手かチェック
     const move = validMoves.find((m) => m.row === row && m.col === col);
     if (!move) return;
 
@@ -212,10 +248,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (mode === 'cpu' && turn === 'white' && !isFinished) {
       setIsAiThinking(true);
-      // 人間味のある思考ディレイ（0.5〜0.8秒）
       const delay = Math.random() * 300 + 500;
       const timer = setTimeout(() => {
-        const aiMove = calculateAiMove(board, 'white', aiLevel);
+        const aiMove = calculateAiMove(board, 'white', aiLevel, rule, unlocked);
         if (aiMove) {
           executeMove(aiMove.row, aiMove.col, 'white', false);
         }
@@ -224,7 +259,7 @@ export const App: React.FC = () => {
 
       return () => clearTimeout(timer);
     }
-  }, [board, turn, mode, aiLevel, isFinished, executeMove]);
+  }, [board, turn, mode, aiLevel, isFinished, rule, unlocked, executeMove]);
 
   // 終局検知
   useEffect(() => {
@@ -242,10 +277,10 @@ export const App: React.FC = () => {
     if (history.length === 0 || isAiThinking) return;
 
     if (mode === 'cpu') {
-      // CPU対戦の場合は、自分の手番まで2手戻す
       if (history.length >= 2) {
         const target = history[history.length - 2];
         setBoard(target.board);
+        setUnlocked(target.unlocked);
         setTurn('black');
         setLastMove(target.lastMove);
         setHistory((prev) => prev.slice(0, prev.length - 2));
@@ -253,14 +288,15 @@ export const App: React.FC = () => {
         handleResetGame();
       }
     } else {
-      // ローカル対戦の場合は1手戻す
       const last = history[history.length - 1];
       setBoard(last.board);
+      setUnlocked(last.unlocked);
       setTurn(last.turn);
       setLastMove(last.lastMove);
       setHistory((prev) => prev.slice(0, prev.length - 1));
     }
     setPassMessage(null);
+    setZoneAlertMessage(null);
   };
 
   // 投了
@@ -280,23 +316,26 @@ export const App: React.FC = () => {
   };
 
   // モード選択
-  const handleSelectCpu = (level: AiLevel) => {
+  const handleSelectCpu = (level: AiLevel, selectedRule: RuleType) => {
     setMode('cpu');
     setAiLevel(level);
+    setRule(selectedRule);
     setIsModeModalOpen(false);
     p2pManager.cleanup();
-    handleResetGame();
+    handleResetGame(selectedRule);
   };
 
-  const handleSelectLocal = () => {
+  const handleSelectLocal = (selectedRule: RuleType) => {
     setMode('local');
+    setRule(selectedRule);
     setIsModeModalOpen(false);
     p2pManager.cleanup();
-    handleResetGame();
+    handleResetGame(selectedRule);
   };
 
-  const handleSelectOnline = () => {
+  const handleSelectOnline = (selectedRule: RuleType) => {
     setMode('online');
+    setRule(selectedRule);
     setIsModeModalOpen(false);
     setIsOnlineModalOpen(true);
   };
@@ -326,7 +365,7 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-2 sm:p-4 max-w-[500px] mx-auto w-full selection:bg-emerald-500 selection:text-white">
       {/* 上部タイトル */}
-      <header className="w-full flex items-center justify-between py-1.5 px-1">
+      <header className="w-full flex items-center justify-between py-1 px-1">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
             <span className="w-3.5 h-3.5 rounded-full bg-slate-900 border border-white/20 inline-block shadow-sm" />
@@ -334,8 +373,8 @@ export const App: React.FC = () => {
           <div>
             <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
               <span>対戦オセロ</span>
-              <span className="text-[9px] text-emerald-400 font-mono bg-emerald-950/80 border border-emerald-800/80 px-1 py-0.2 rounded font-bold">
-                Online
+              <span className="text-[9px] text-amber-400 font-mono bg-amber-950/80 border border-amber-800/80 px-1 py-0.2 rounded font-bold">
+                {rule === 'fortress' ? '要塞モード' : '通常'}
               </span>
             </h1>
           </div>
@@ -343,34 +382,40 @@ export const App: React.FC = () => {
 
         <div className="text-[10px] text-slate-400 font-bold bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-full">
           {mode === 'online' ? (
-            <span className="text-amber-400">オンライン対戦中</span>
+            <span className="text-amber-400">オンライン対戦</span>
           ) : mode === 'cpu' ? (
             <span className="text-emerald-400">CPU対戦中</span>
           ) : (
-            <span className="text-sky-400">2人対面対戦中</span>
+            <span className="text-sky-400">2人対面対戦</span>
           )}
         </div>
       </header>
 
-      {/* メインゲーム領域（画面幅いっぱいに展開） */}
-      <main className="w-full flex-1 flex flex-col items-center justify-center py-1">
+      {/* メインゲーム領域 */}
+      <main className="w-full flex-1 flex flex-col items-center justify-center py-0.5">
         {/* 手番・スコアヘッダー */}
         <GameHeader
           score={score}
           turn={turn}
           mode={mode}
+          rule={rule}
+          unlocked={unlocked}
           aiLevel={aiLevel}
           myColor={myOnlineColor}
           isAiThinking={isAiThinking}
           passMessage={passMessage}
+          zoneAlertMessage={zoneAlertMessage}
         />
 
-        {/* 8x8 オセロ盤 */}
+        {/* オセロ盤（通常 8x8 または 四隅要塞 14x14） */}
         <Board
           board={board}
+          rule={rule}
+          unlocked={unlocked}
           validMoves={validMoves}
           lastMove={lastMove}
           flippingPositions={flippingPositions}
+          newlyUnlockedZone={newlyUnlockedZone}
           turn={turn}
           onCellClick={handleCellClick}
           disabled={
@@ -387,7 +432,7 @@ export const App: React.FC = () => {
           canUndo={history.length > 0}
           isMuted={isMuted}
           onUndo={handleUndo}
-          onReset={handleResetGame}
+          onReset={() => handleResetGame()}
           onResign={handleResign}
           onToggleSound={handleToggleSound}
           onOpenModeSelector={() => setIsModeModalOpen(true)}
@@ -396,14 +441,15 @@ export const App: React.FC = () => {
       </main>
 
       {/* フッター */}
-      <footer className="w-full text-center text-[10px] text-slate-500 py-1">
-        対戦オセロ (Reversi) © 2026 • マサ専用エディション
+      <footer className="w-full text-center text-[9px] text-slate-500 py-0.5">
+        四隅要塞オセロ © 2026 • マサ考案スペシャルエディション
       </footer>
 
       {/* モード選択モーダル */}
       <ModeSelector
         isOpen={isModeModalOpen}
         currentMode={mode}
+        currentRule={rule}
         currentAiLevel={aiLevel}
         onSelectCpu={handleSelectCpu}
         onSelectLocal={handleSelectLocal}
@@ -429,7 +475,7 @@ export const App: React.FC = () => {
         score={score}
         mode={mode}
         myColor={myOnlineColor}
-        onRestart={handleResetGame}
+        onRestart={() => handleResetGame()}
         onClose={() => setIsGameOverModalOpen(false)}
       />
     </div>

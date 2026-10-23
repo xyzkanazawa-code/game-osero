@@ -1,54 +1,111 @@
 import React from 'react';
-import { BoardState, Move, Player, Position } from '../types/othello';
+import { CellValue, Move, Player, Position, RuleType, UnlockedZones } from '../types/othello';
 import { Cell } from './Cell';
+import { GRID_SIZE, isCellActive } from '../utils/othelloLogic';
 
 interface BoardProps {
-  board: BoardState;
+  board: CellValue[][];
+  rule: RuleType;
+  unlocked: UnlockedZones;
   validMoves: Move[];
   lastMove: Position | null;
   flippingPositions: Set<string>;
+  newlyUnlockedZone: keyof UnlockedZones | null;
   turn: Player;
   onCellClick: (row: number, col: number) => void;
   disabled: boolean;
 }
 
-const COL_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+const CLASSIC_COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
 export const Board: React.FC<BoardProps> = ({
   board,
+  rule,
+  unlocked,
   validMoves,
   lastMove,
   flippingPositions,
+  newlyUnlockedZone,
   turn,
   onCellClick,
   disabled
 }) => {
-  // マスごとの有効手マップ（高速参照用）
+  // マスごとの有効手マップ
   const validMoveMap = new Map<string, number>();
   for (const m of validMoves) {
     validMoveMap.set(`${m.row},${m.col}`, m.flipped.length);
   }
 
+  // 1. 通常 8x8 ルールの場合: 中央8x8のみをすっきり描画
+  if (rule === 'classic') {
+    return (
+      <div className="w-full flex flex-col items-center justify-center my-1 select-none">
+        <div className="felt-board p-2 sm:p-3 w-full max-w-[min(96vw,460px)] flex flex-col box-border shadow-2xl">
+          <div className="grid grid-cols-8 text-center text-[10px] sm:text-xs font-black text-emerald-950/80 mb-1 select-none">
+            {CLASSIC_COLS.map((col) => (
+              <div key={col}>{col}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-8 w-full aspect-square border-2 border-emerald-950/70 rounded overflow-hidden bg-emerald-800/30">
+            {/* 行3..10, 列3..10 のみをマップ */}
+            {Array.from({ length: 8 }, (_, rIdx) => {
+              const r = rIdx + 3;
+              return Array.from({ length: 8 }, (_, cIdx) => {
+                const c = cIdx + 3;
+                const posKey = `${r},${c}`;
+                const isValid = validMoveMap.has(posKey);
+                const flipCount = validMoveMap.get(posKey) || 0;
+                const isLast = lastMove ? lastMove.row === r && lastMove.col === c : false;
+                const isFlipping = flippingPositions.has(posKey);
+
+                return (
+                  <Cell
+                    key={posKey}
+                    row={r}
+                    col={c}
+                    value={board[r][c]}
+                    isActive={true}
+                    isFlipping={isFlipping}
+                    flipTarget={isFlipping ? board[r][c] : null}
+                    isLastMove={isLast}
+                    isValidMove={isValid}
+                    flipCount={flipCount}
+                    onClick={() => onCellClick(r, c)}
+                    disabled={disabled}
+                  />
+                );
+              });
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. 四隅要塞拡張ルール (Fortress Mode) の場合: 14x14 のダイナミック城塞盤面
   return (
     <div className="w-full flex flex-col items-center justify-center my-1 select-none">
-      {/* 盤面本体（画面幅に合わせた最大迫力サイズ） */}
-      <div className="felt-board p-2 sm:p-3 w-full max-w-[min(96vw,460px)] flex flex-col box-border shadow-2xl">
-        {/* 列ラベル (A-H) */}
-        <div className="grid grid-cols-8 text-center text-[10px] sm:text-xs font-black text-emerald-950/80 mb-1 select-none">
-          {COL_LABELS.map((col) => (
-            <div key={col}>{col}</div>
-          ))}
-        </div>
-
-        {/* 8x8 マス目グリッド（w-full aspect-square でスマホ幅いっぱいに正方形展開） */}
-        <div className="grid grid-cols-8 w-full aspect-square border-2 border-emerald-950/70 rounded overflow-hidden bg-emerald-800/30">
+      <div className="felt-board p-1.5 sm:p-2.5 w-full max-w-[min(96vw,460px)] flex flex-col box-border shadow-2xl relative">
+        {/* 四隅拡張モード用の14x14グリッド */}
+        <div className="grid grid-cols-14 w-full aspect-square border-2 border-emerald-950/60 rounded overflow-hidden bg-slate-950/60">
           {board.map((rowArr, r) =>
             rowArr.map((cellValue, c) => {
               const posKey = `${r},${c}`;
+              const active = isCellActive(r, c, rule, unlocked);
               const isValid = validMoveMap.has(posKey);
               const flipCount = validMoveMap.get(posKey) || 0;
               const isLast = lastMove ? lastMove.row === r && lastMove.col === c : false;
               const isFlipping = flippingPositions.has(posKey);
+
+              // 新しく解放されたゾーン内のマスか判定
+              let isNewlyUnlocked = false;
+              if (newlyUnlockedZone) {
+                if (newlyUnlockedZone === 'topLeft' && r <= 2 && c <= 2) isNewlyUnlocked = true;
+                if (newlyUnlockedZone === 'topRight' && r <= 2 && c >= 11) isNewlyUnlocked = true;
+                if (newlyUnlockedZone === 'bottomLeft' && r >= 11 && c <= 2) isNewlyUnlocked = true;
+                if (newlyUnlockedZone === 'bottomRight' && r >= 11 && c >= 11) isNewlyUnlocked = true;
+              }
 
               return (
                 <Cell
@@ -56,11 +113,13 @@ export const Board: React.FC<BoardProps> = ({
                   row={r}
                   col={c}
                   value={cellValue}
+                  isActive={active}
                   isFlipping={isFlipping}
                   flipTarget={isFlipping ? cellValue : null}
                   isLastMove={isLast}
                   isValidMove={isValid}
                   flipCount={flipCount}
+                  isNewlyUnlocked={isNewlyUnlocked}
                   onClick={() => onCellClick(r, c)}
                   disabled={disabled}
                 />

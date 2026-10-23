@@ -1,116 +1,140 @@
-import { AiLevel, BoardState, Move, Player } from '../types/othello';
+import {
+  AiLevel,
+  CellValue,
+  Move,
+  Player,
+  RuleType,
+  UnlockedZones
+} from '../types/othello';
 import {
   applyMove,
   countScore,
   getOpponent,
   getValidMoves,
+  GRID_SIZE,
+  isCellActive,
   isGameOver
 } from './othelloLogic';
 
-// 8x8の位置評価テーブル（標準的なオセロ戦略の重み付け）
-// 角(0,0),(0,7),(7,0),(7,7)は超高得点(100)
-// 角に隣接するXマス(1,1),(1,6),(6,1),(6,6)は超危険(-50)
-// 角に隣接するCマス(0,1),(1,0)などは危険(-20)
-const WEIGHT_TABLE: number[][] = [
-  [ 100, -25,  10,   5,   5,  10, -25,  100],
-  [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
-  [  10,  -2,   3,   2,   2,   3,  -2,   10],
-  [   5,  -2,   2,   1,   1,   2,  -2,    5],
-  [   5,  -2,   2,   1,   1,   2,  -2,    5],
-  [  10,  -2,   3,   2,   2,   3,  -2,   10],
-  [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
-  [ 100, -25,  10,   5,   5,  10, -25,  100]
-];
+// 基本重みテーブル（14x14全体）
+// 中央8x8（3..10）に標準オセロ重みを配置、外側3x3ゾーンの最果て（0,0 / 0,13 / 13,0 / 13,13）は150点の超重要マス！
+const generateWeightTable = (): number[][] => {
+  const table = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0));
 
-// 角の座標
-const CORNERS = [
-  { r: 0, c: 0 },
-  { r: 0, c: 7 },
-  { r: 7, c: 0 },
-  { r: 7, c: 7 }
-];
+  // 標準8x8重み（3..10にマッピング）
+  const base8: number[][] = [
+    [ 100, -25,  10,   5,   5,  10, -25,  100],
+    [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
+    [  10,  -2,   3,   2,   2,   3,  -2,   10],
+    [   5,  -2,   2,   1,   1,   2,  -2,    5],
+    [   5,  -2,   2,   1,   1,   2,  -2,    5],
+    [  10,  -2,   3,   2,   2,   3,  -2,   10],
+    [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
+    [ 100, -25,  10,   5,   5,  10, -25,  100]
+  ];
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      table[r + 3][c + 3] = base8[r][c];
+    }
+  }
+
+  // 4隅3x3エリアの重み（最果ての角は150点、隣接マスは注意）
+  // 左上 (0..2, 0..2)
+  table[0][0] = 150; table[0][1] = -30; table[0][2] = 20;
+  table[1][0] = -30; table[1][1] = -60; table[1][2] = -10;
+  table[2][0] = 20;  table[2][1] = -10; table[2][2] = 10;
+
+  // 右上 (0..2, 11..13)
+  table[0][13] = 150; table[0][12] = -30; table[0][11] = 20;
+  table[1][13] = -30; table[1][12] = -60; table[1][11] = -10;
+  table[2][13] = 20;  table[2][12] = -10; table[2][11] = 10;
+
+  // 左下 (11..13, 0..2)
+  table[13][0] = 150; table[13][1] = -30; table[13][2] = 20;
+  table[12][0] = -30; table[12][1] = -60; table[12][2] = -10;
+  table[11][0] = 20;  table[11][1] = -10; table[11][2] = 10;
+
+  // 右下 (11..13, 11..13)
+  table[13][13] = 150; table[13][12] = -30; table[13][11] = 20;
+  table[12][13] = -30; table[12][12] = -60; table[12][11] = -10;
+  table[11][13] = 20;  table[11][12] = -10; table[11][11] = 10;
+
+  return table;
+};
+
+const WEIGHT_TABLE = generateWeightTable();
 
 /**
  * 盤面の静的評価関数
  */
-const evaluateBoard = (board: BoardState, player: Player): number => {
+const evaluateBoard = (
+  board: CellValue[][],
+  player: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones
+): number => {
   const opponent = getOpponent(player);
 
   let positionalScore = 0;
   let playerCount = 0;
   let opponentCount = 0;
 
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      const cell = board[r][c];
-      if (cell === player) {
-        playerCount++;
-        // すでに角を取っている場合、隣接マスのマイナス評価を解除する動的補正
-        let weight = WEIGHT_TABLE[r][c];
-        if (weight < 0) {
-          // 該当する角が自分の石ならマイナスをプラスに反転
-          if ((r <= 1 && c <= 1 && board[0][0] === player) ||
-              (r <= 1 && c >= 6 && board[0][7] === player) ||
-              (r >= 6 && c <= 1 && board[7][0] === player) ||
-              (r >= 6 && c >= 6 && board[7][7] === player)) {
-            weight = Math.abs(weight) / 2;
-          }
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (isCellActive(r, c, rule, unlocked)) {
+        const cell = board[r][c];
+        if (cell === player) {
+          playerCount++;
+          positionalScore += WEIGHT_TABLE[r][c];
+        } else if (cell === opponent) {
+          opponentCount++;
+          positionalScore -= WEIGHT_TABLE[r][c];
         }
-        positionalScore += weight;
-      } else if (cell === opponent) {
-        opponentCount++;
-        let weight = WEIGHT_TABLE[r][c];
-        if (weight < 0) {
-          if ((r <= 1 && c <= 1 && board[0][0] === opponent) ||
-              (r <= 1 && c >= 6 && board[0][7] === opponent) ||
-              (r >= 6 && c <= 1 && board[7][0] === opponent) ||
-              (r >= 6 && c >= 6 && board[7][7] === opponent)) {
-            weight = Math.abs(weight) / 2;
-          }
-        }
-        positionalScore -= weight;
       }
     }
   }
 
-  // 着手可能手数（モビリティ）の評価: 打てる手が多い方が有利
-  const myMoves = getValidMoves(board, player).length;
-  const oppMoves = getValidMoves(board, opponent).length;
-  const mobilityScore = myMoves + oppMoves > 0 
+  // モビリティ（着手可能手数）の評価
+  const myMoves = getValidMoves(board, player, rule, unlocked).length;
+  const oppMoves = getValidMoves(board, opponent, rule, unlocked).length;
+  const mobilityScore = myMoves + oppMoves > 0
     ? 100 * (myMoves - oppMoves) / (myMoves + oppMoves)
     : 0;
 
-  // 終盤（空きマスが少ない場合）は石の獲得枚数の重要度を跳ね上げる
-  const totalDiscs = playerCount + opponentCount;
-  if (totalDiscs >= 54) {
-    const discScore = (playerCount - opponentCount) * 15;
-    return positionalScore + mobilityScore * 0.5 + discScore;
-  }
-
-  return positionalScore * 1.0 + mobilityScore * 10;
+  return positionalScore + mobilityScore * 8;
 };
 
 /**
- * 初級AI: ランダムまたは少し獲得枚数を意識する程度
+ * 初級AI
  */
 const getEasyMove = (moves: Move[]): Move => {
-  // 30%の確率で完全ランダム、70%は取れる石が2〜4枚の無難な手
   if (Math.random() < 0.35) {
     return moves[Math.floor(Math.random() * moves.length)];
   }
-  // 取れる枚数順でソートして上位3手からランダム
   const sorted = [...moves].sort((a, b) => b.flipped.length - a.flipped.length);
   const topMoves = sorted.slice(0, Math.min(3, sorted.length));
   return topMoves[Math.floor(Math.random() * topMoves.length)];
 };
 
 /**
- * 中級AI: 1手先の位置評価（角の取得とX・Cマスの回避）
+ * 中級AI
  */
-const getMediumMove = (board: BoardState, moves: Move[], player: Player): Move => {
-  // 角が取れるなら最優先で取る
+const getMediumMove = (
+  board: CellValue[][],
+  moves: Move[],
+  player: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones
+): Move => {
+  // 角（元の角、または新エリアの真の角）が取れるなら最優先
+  const highPriorityCorners = [
+    { r: 3, c: 3 }, { r: 3, c: 10 }, { r: 10, c: 3 }, { r: 10, c: 10 },
+    { r: 0, c: 0 }, { r: 0, c: 13 }, { r: 13, c: 0 }, { r: 13, c: 13 }
+  ];
+
   for (const move of moves) {
-    if (CORNERS.some((c) => c.r === move.row && c.c === move.col)) {
+    if (highPriorityCorners.some((c) => c.r === move.row && c.c === move.col)) {
       return move;
     }
   }
@@ -119,8 +143,8 @@ const getMediumMove = (board: BoardState, moves: Move[], player: Player): Move =
   let bestMoves: Move[] = [];
 
   for (const move of moves) {
-    const { nextBoard } = applyMove(board, move.row, move.col, player);
-    const score = evaluateBoard(nextBoard, player);
+    const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, player, rule, unlocked);
+    const score = evaluateBoard(nextBoard, player, rule, nextUnlocked);
 
     if (score > bestScore) {
       bestScore = score;
@@ -130,85 +154,88 @@ const getMediumMove = (board: BoardState, moves: Move[], player: Player): Move =
     }
   }
 
-  // 同点の中からランダム選択
   return bestMoves[Math.floor(Math.random() * bestMoves.length)];
 };
 
 /**
- * 上級AI: Minimax + Alpha-Beta探索
+ * 上級AI（Alpha-Beta探索）
  */
 const alphaBeta = (
-  board: BoardState,
+  board: CellValue[][],
   depth: number,
   alpha: number,
   beta: number,
   isMaximizing: boolean,
-  targetPlayer: Player
+  targetPlayer: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones
 ): number => {
-  if (depth === 0 || isGameOver(board)) {
-    return evaluateBoard(board, targetPlayer);
+  if (depth === 0 || isGameOver(board, rule, unlocked)) {
+    return evaluateBoard(board, targetPlayer, rule, unlocked);
   }
 
   const currentPlayer = isMaximizing ? targetPlayer : getOpponent(targetPlayer);
-  const validMoves = getValidMoves(board, currentPlayer);
+  const validMoves = getValidMoves(board, currentPlayer, rule, unlocked);
 
-  // パスの場合
   if (validMoves.length === 0) {
-    return alphaBeta(board, depth - 1, alpha, beta, !isMaximizing, targetPlayer);
+    return alphaBeta(board, depth - 1, alpha, beta, !isMaximizing, targetPlayer, rule, unlocked);
   }
 
   if (isMaximizing) {
     let maxEval = -Infinity;
     for (const move of validMoves) {
-      const { nextBoard } = applyMove(board, move.row, move.col, currentPlayer);
-      const evalValue = alphaBeta(nextBoard, depth - 1, alpha, beta, false, targetPlayer);
+      const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, currentPlayer, rule, unlocked);
+      const evalValue = alphaBeta(nextBoard, depth - 1, alpha, beta, false, targetPlayer, rule, nextUnlocked);
       maxEval = Math.max(maxEval, evalValue);
       alpha = Math.max(alpha, evalValue);
-      if (beta <= alpha) break; // β枝刈り
+      if (beta <= alpha) break;
     }
     return maxEval;
   } else {
     let minEval = Infinity;
     for (const move of validMoves) {
-      const { nextBoard } = applyMove(board, move.row, move.col, currentPlayer);
-      const evalValue = alphaBeta(nextBoard, depth - 1, alpha, beta, true, targetPlayer);
+      const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, currentPlayer, rule, unlocked);
+      const evalValue = alphaBeta(nextBoard, depth - 1, alpha, beta, true, targetPlayer, rule, nextUnlocked);
       minEval = Math.min(minEval, evalValue);
       beta = Math.min(beta, evalValue);
-      if (beta <= alpha) break; // α枝刈り
+      if (beta <= alpha) break;
     }
     return minEval;
   }
 };
 
-/**
- * 上級AIの着手決定
- */
-const getHardMove = (board: BoardState, moves: Move[], player: Player): Move => {
-  // 角が取れる手は即座に選択
+const getHardMove = (
+  board: CellValue[][],
+  moves: Move[],
+  player: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones
+): Move => {
+  const highPriorityCorners = [
+    { r: 3, c: 3 }, { r: 3, c: 10 }, { r: 10, c: 3 }, { r: 10, c: 10 },
+    { r: 0, c: 0 }, { r: 0, c: 13 }, { r: 13, c: 0 }, { r: 13, c: 13 }
+  ];
+
   for (const move of moves) {
-    if (CORNERS.some((c) => c.r === move.row && c.c === move.col)) {
+    if (highPriorityCorners.some((c) => c.r === move.row && c.c === move.col)) {
       return move;
     }
   }
 
-  const totalScore = countScore(board);
-  const totalDiscs = totalScore.black + totalScore.white;
-  // 終盤（空きマスが10個以下）は深さ5、それ以外は深さ4で高速かつ深読み
-  const searchDepth = totalDiscs >= 54 ? 5 : 4;
-
+  // 深さ3で高速かつ精緻に探索
+  const searchDepth = 3;
   let bestScore = -Infinity;
   let bestMoves: Move[] = [];
   let alpha = -Infinity;
   const beta = Infinity;
 
-  // 角に近い危険な手を後ろに回す等のMove Orderingで枝刈り効率化
   const sortedMoves = [...moves].sort((a, b) => {
     return WEIGHT_TABLE[b.row][b.col] - WEIGHT_TABLE[a.row][a.col];
   });
 
   for (const move of sortedMoves) {
-    const { nextBoard } = applyMove(board, move.row, move.col, player);
-    const score = alphaBeta(nextBoard, searchDepth - 1, alpha, beta, false, player);
+    const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, player, rule, unlocked);
+    const score = alphaBeta(nextBoard, searchDepth - 1, alpha, beta, false, player, rule, nextUnlocked);
 
     if (score > bestScore) {
       bestScore = score;
@@ -223,22 +250,24 @@ const getHardMove = (board: BoardState, moves: Move[], player: Player): Move => 
 };
 
 /**
- * AIレベルに応じた着手を算出
+ * AI着手決定
  */
 export const calculateAiMove = (
-  board: BoardState,
+  board: CellValue[][],
   player: Player,
-  level: AiLevel
+  level: AiLevel,
+  rule: RuleType,
+  unlocked: UnlockedZones
 ): Move | null => {
-  const validMoves = getValidMoves(board, player);
+  const validMoves = getValidMoves(board, player, rule, unlocked);
   if (validMoves.length === 0) return null;
 
   switch (level) {
     case 'easy':
       return getEasyMove(validMoves);
     case 'medium':
-      return getMediumMove(board, validMoves, player);
+      return getMediumMove(board, validMoves, player, rule, unlocked);
     case 'hard':
-      return getHardMove(board, validMoves, player);
+      return getHardMove(board, validMoves, player, rule, unlocked);
   }
 };
