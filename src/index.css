@@ -82,17 +82,19 @@
 .felt-board {
   background: radial-gradient(circle at 50% 50%, #16a34a 0%, #15803d 60%, #14532d 100%);
   box-shadow: 
-    inset 0 0 35px rgba(0, 0, 0, 0.6),
-    0 12px 36px -4px rgba(0, 0, 0, 0.8),
-    0 4px 12px rgba(0, 0, 0, 0.5);
-  border: 12px solid #542d13;
-  border-radius: 18px;
+    inset 0 0 25px rgba(0, 0, 0, 0.6),
+    0 8px 24px -4px rgba(0, 0, 0, 0.7),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+  border: 10px solid #542d13;
+  border-radius: 16px;
+  box-sizing: border-box;
 }
 
 @media (max-width: 640px) {
   .felt-board {
-    border-width: 8px;
-    border-radius: 12px;
+    border-width: 6px;
+    border-radius: 10px;
+    padding: 6px !important;
   }
 }
 

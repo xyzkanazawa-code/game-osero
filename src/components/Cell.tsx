@@ -49,11 +49,11 @@ export const Cell: React.FC<CellProps> = ({
 
       {/* 石がある場合の描画（3Dフリップ） */}
       {value && (
-        <div className="perspective-800 w-[84%] h-[84%] flex items-center justify-center">
+        <div className="perspective-800 w-[90%] h-[90%] flex items-center justify-center">
           <div
             className={`w-full h-full rounded-full transition-transform duration-300 relative ${discAnimationClass}`}
             style={{
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.45), inset 0 2px 4px rgba(255, 255, 255, 0.3)'
+              boxShadow: '0 3px 6px rgba(0, 0, 0, 0.45), inset 0 2px 3px rgba(255, 255, 255, 0.35)'
             }}
           >
             {value === 'black' ? (

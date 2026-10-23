@@ -30,18 +30,18 @@ export const Board: React.FC<BoardProps> = ({
   }
 
   return (
-    <div className="flex flex-col items-center">
-      {/* 盤面本体 */}
-      <div className="felt-board p-2 sm:p-3 w-full max-w-[460px] sm:max-w-[500px]">
+    <div className="w-full flex flex-col items-center justify-center my-1 select-none">
+      {/* 盤面本体（画面幅に合わせた最大迫力サイズ） */}
+      <div className="felt-board p-2 sm:p-3 w-full max-w-[min(96vw,460px)] flex flex-col box-border shadow-2xl">
         {/* 列ラベル (A-H) */}
-        <div className="grid grid-cols-8 text-center text-[10px] sm:text-xs font-bold text-emerald-950/70 mb-1 select-none">
+        <div className="grid grid-cols-8 text-center text-[10px] sm:text-xs font-black text-emerald-950/80 mb-1 select-none">
           {COL_LABELS.map((col) => (
             <div key={col}>{col}</div>
           ))}
         </div>
 
-        {/* 8x8 マス目グリッド */}
-        <div className="grid grid-cols-8 border-2 border-emerald-950/60 rounded overflow-hidden bg-emerald-800/20">
+        {/* 8x8 マス目グリッド（w-full aspect-square でスマホ幅いっぱいに正方形展開） */}
+        <div className="grid grid-cols-8 w-full aspect-square border-2 border-emerald-950/70 rounded overflow-hidden bg-emerald-800/30">
           {board.map((rowArr, r) =>
             rowArr.map((cellValue, c) => {
               const posKey = `${r},${c}`;

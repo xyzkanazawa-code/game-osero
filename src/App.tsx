@@ -324,24 +324,24 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-3 sm:p-5 selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-2 sm:p-4 max-w-[500px] mx-auto w-full selection:bg-emerald-500 selection:text-white">
       {/* 上部タイトル */}
-      <header className="w-full max-w-[500px] flex items-center justify-between pt-1 pb-2">
+      <header className="w-full flex items-center justify-between py-1.5 px-1">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
-            <span className="w-4 h-4 rounded-full bg-slate-900 border border-white/20 inline-block shadow-sm" />
+          <div className="w-7 h-7 rounded-lg bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
+            <span className="w-3.5 h-3.5 rounded-full bg-slate-900 border border-white/20 inline-block shadow-sm" />
           </div>
           <div>
-            <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+            <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
               <span>対戦オセロ</span>
-              <span className="text-[10px] text-emerald-400 font-mono bg-emerald-950/80 border border-emerald-800/80 px-1.5 py-0.2 rounded font-bold">
+              <span className="text-[9px] text-emerald-400 font-mono bg-emerald-950/80 border border-emerald-800/80 px-1 py-0.2 rounded font-bold">
                 Online
               </span>
             </h1>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-400 font-bold bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-full">
+        <div className="text-[10px] text-slate-400 font-bold bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-full">
           {mode === 'online' ? (
             <span className="text-amber-400">オンライン対戦中</span>
           ) : mode === 'cpu' ? (
@@ -352,8 +352,8 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* メインゲーム領域 */}
-      <main className="w-full max-w-[500px] flex-1 flex flex-col items-center justify-center">
+      {/* メインゲーム領域（画面幅いっぱいに展開） */}
+      <main className="w-full flex-1 flex flex-col items-center justify-center py-1">
         {/* 手番・スコアヘッダー */}
         <GameHeader
           score={score}
@@ -396,7 +396,7 @@ export const App: React.FC = () => {
       </main>
 
       {/* フッター */}
-      <footer className="w-full max-w-[500px] text-center text-[10px] text-slate-500 pt-3 pb-1">
+      <footer className="w-full text-center text-[10px] text-slate-500 py-1">
         対戦オセロ (Reversi) © 2026 • マサ専用エディション
       </footer>
 
