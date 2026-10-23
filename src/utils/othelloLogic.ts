@@ -8,46 +8,74 @@ import {
   UnlockedZones
 } from '../types/othello';
 
-// グリッドサイズ: 中央8x8 + 周囲1周（各角7マス）を内包する 10x10
-export const GRID_SIZE = 10;
-export const OFFSET = 1; // 中央8x8は行1..8, 列1..8
+// グリッドサイズ: 12x12 (中央8x8 + 第1層10x10 + 第2層12x12)
+export const GRID_SIZE = 12;
+export const OFFSET = 2; // 中央8x8は行2..9, 列2..9
 
-// 8方向ベクトル [dRow, dCol]
+// 8方向ベクトル
 export const DIRECTIONS: [number, number][] = [
   [-1, -1], [-1, 0], [-1, 1],
   [0, -1],           [0, 1],
   [1, -1],  [1, 0],  [1, 1]
 ];
 
-// 元の8x8の4隅の座標（10x10座標系内）
-export const ORIGINAL_CORNERS = {
-  topLeft: { row: 1, col: 1 },
-  topRight: { row: 1, col: 8 },
-  bottomLeft: { row: 8, col: 1 },
-  bottomRight: { row: 8, col: 8 }
+// 元の8x8の4隅の座標（フェーズ1トリガー）
+export const PHASE1_CORNERS = {
+  topLeft: { row: 2, col: 2 },
+  topRight: { row: 2, col: 9 },
+  bottomLeft: { row: 9, col: 2 },
+  bottomRight: { row: 9, col: 9 }
 };
 
-// 各角7マス（横3 + 縦3 + 斜め角1）の座標リスト
-export const FORTRESS_ZONE_CELLS = {
+// 第1要塞の4隅の座標（フェーズ2トリガー）
+export const PHASE2_CORNERS = {
+  topLeft: { row: 1, col: 1 },
+  topRight: { row: 1, col: 10 },
+  bottomLeft: { row: 10, col: 1 },
+  bottomRight: { row: 10, col: 10 }
+};
+
+// 🏰 第1段階（各角7マス: 横3 + 縦3 + 斜め角1）
+export const FORTRESS_ZONE_PHASE1 = {
   topLeft: [
-    { r: 0, c: 0 }, // 斜め角
-    { r: 0, c: 1 }, { r: 0, c: 2 }, { r: 0, c: 3 }, // 上横3マス
-    { r: 1, c: 0 }, { r: 2, c: 0 }, { r: 3, c: 0 }  // 左縦3マス
+    { r: 1, c: 1 }, // 斜め角
+    { r: 1, c: 2 }, { r: 1, c: 3 }, { r: 1, c: 4 }, // 上横3マス
+    { r: 2, c: 1 }, { r: 3, c: 1 }, { r: 4, c: 1 }  // 左縦3マス
   ],
   topRight: [
-    { r: 0, c: 9 }, // 斜め角
-    { r: 0, c: 6 }, { r: 0, c: 7 }, { r: 0, c: 8 }, // 上横3マス
-    { r: 1, c: 9 }, { r: 2, c: 9 }, { r: 3, c: 9 }  // 右縦3マス
+    { r: 1, c: 10 }, // 斜め角
+    { r: 1, c: 7 }, { r: 1, c: 8 }, { r: 1, c: 9 }, // 上横3マス
+    { r: 2, c: 10 }, { r: 3, c: 10 }, { r: 4, c: 10 } // 右縦3マス
   ],
   bottomLeft: [
-    { r: 9, c: 0 }, // 斜め角
-    { r: 9, c: 1 }, { r: 9, c: 2 }, { r: 9, c: 3 }, // 下横3マス
-    { r: 6, c: 0 }, { r: 7, c: 0 }, { r: 8, c: 0 }  // 左縦3マス
+    { r: 10, c: 1 }, // 斜め角
+    { r: 10, c: 2 }, { r: 10, c: 3 }, { r: 10, c: 4 }, // 下横3マス
+    { r: 7, c: 1 }, { r: 8, c: 1 }, { r: 9, c: 1 }   // 左縦3マス
   ],
   bottomRight: [
-    { r: 9, c: 9 }, // 斜め角
-    { r: 9, c: 6 }, { r: 9, c: 7 }, { r: 9, c: 8 }, // 下横3マス
-    { r: 6, c: 9 }, { r: 7, c: 9 }, { r: 8, c: 9 }  // 右縦3マス
+    { r: 10, c: 10 }, // 斜め角
+    { r: 10, c: 7 }, { r: 10, c: 8 }, { r: 10, c: 9 }, // 下横3マス
+    { r: 7, c: 10 }, { r: 8, c: 10 }, { r: 9, c: 10 } // 右縦3マス
+  ]
+};
+
+// 🔥 第2段階（各角5マス: マサご指定のA 横3 + 縦2）
+export const FORTRESS_ZONE_PHASE2 = {
+  topLeft: [
+    { r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 }, // 上横3マス
+    { r: 1, c: 0 }, { r: 2, c: 0 }                  // 左縦2マス
+  ],
+  topRight: [
+    { r: 0, c: 9 }, { r: 0, c: 10 }, { r: 0, c: 11 }, // 上横3マス
+    { r: 1, c: 11 }, { r: 2, c: 11 }                  // 右縦2マス
+  ],
+  bottomLeft: [
+    { r: 11, c: 0 }, { r: 11, c: 1 }, { r: 11, c: 2 }, // 下横3マス
+    { r: 9, c: 0 }, { r: 10, c: 0 }                    // 左縦2マス
+  ],
+  bottomRight: [
+    { r: 11, c: 9 }, { r: 11, c: 10 }, { r: 11, c: 11 }, // 下横3マス
+    { r: 9, c: 11 }, { r: 10, c: 11 }                    // 右縦2マス
   ]
 };
 
@@ -59,11 +87,11 @@ export const createInitialBoard = (rule: RuleType = 'classic'): CellValue[][] =>
     .fill(null)
     .map(() => Array(GRID_SIZE).fill(null));
 
-  // 中央4石（行4,5 / 列4,5）
-  board[4][4] = 'white';
-  board[4][5] = 'black';
-  board[5][4] = 'black';
+  // 中央4石（行5,6 / 列5,6）
   board[5][5] = 'white';
+  board[5][6] = 'black';
+  board[6][5] = 'black';
+  board[6][6] = 'white';
 
   return board;
 };
@@ -73,10 +101,14 @@ export const createInitialBoard = (rule: RuleType = 'classic'): CellValue[][] =>
  */
 export const createInitialUnlockedZones = (rule: RuleType): UnlockedZones => {
   return {
-    topLeft: false,
-    topRight: false,
-    bottomLeft: false,
-    bottomRight: false
+    topLeft_1: false,
+    topRight_1: false,
+    bottomLeft_1: false,
+    bottomRight_1: false,
+    topLeft_2: false,
+    topRight_2: false,
+    bottomLeft_2: false,
+    bottomRight_2: false
   };
 };
 
@@ -91,33 +123,33 @@ export const isCellActive = (
 ): boolean => {
   if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return false;
 
-  // 1. 中央8x8（row 1..8, col 1..8）は常に有効
-  if (row >= 1 && row <= 8 && col >= 1 && col <= 8) {
+  // 1. 中央8x8（row 2..9, col 2..9）は常に有効
+  if (row >= 2 && row <= 9 && col >= 2 && col <= 9) {
     return true;
   }
 
-  // classic や bomb ルール（通常サイズ）の場合は中央8x8のみ
+  // classic や bomb ルールの場合は中央8x8のみ
   if (rule === 'classic' || rule === 'bomb') return false;
 
-  // 2. 解放された四隅7マス（fortress または chaos）
-  if (unlocked.topLeft && FORTRESS_ZONE_CELLS.topLeft.some((p) => p.r === row && p.c === col)) return true;
-  if (unlocked.topRight && FORTRESS_ZONE_CELLS.topRight.some((p) => p.r === row && p.c === col)) return true;
-  if (unlocked.bottomLeft && FORTRESS_ZONE_CELLS.bottomLeft.some((p) => p.r === row && p.c === col)) return true;
-  if (unlocked.bottomRight && FORTRESS_ZONE_CELLS.bottomRight.some((p) => p.r === row && p.c === col)) return true;
+  // 2. 第1段階ゾーン（各角7マス）
+  if (unlocked.topLeft_1 && FORTRESS_ZONE_PHASE1.topLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.topRight_1 && FORTRESS_ZONE_PHASE1.topRight.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomLeft_1 && FORTRESS_ZONE_PHASE1.bottomLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomRight_1 && FORTRESS_ZONE_PHASE1.bottomRight.some((p) => p.r === row && p.c === col)) return true;
+
+  // 3. 第2段階ゾーン（各角5マス: 横3+縦2）
+  if (unlocked.topLeft_2 && FORTRESS_ZONE_PHASE2.topLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.topRight_2 && FORTRESS_ZONE_PHASE2.topRight.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomLeft_2 && FORTRESS_ZONE_PHASE2.bottomLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomRight_2 && FORTRESS_ZONE_PHASE2.bottomRight.some((p) => p.r === row && p.c === col)) return true;
 
   return false;
 };
 
-/**
- * 相手プレイヤーの色を取得
- */
 export const getOpponent = (player: Player): Player => {
   return player === 'black' ? 'white' : 'black';
 };
 
-/**
- * 通常の挟み込みによる反転座標リストを取得
- */
 export const getFlippedPositions = (
   board: CellValue[][],
   row: number,
@@ -152,9 +184,6 @@ export const getFlippedPositions = (
   return flippable;
 };
 
-/**
- * 爆弾石投下時の周囲爆破対象リストを取得（周囲3x3の相手石）
- */
 export const getBombExplodedPositions = (
   board: CellValue[][],
   row: number,
@@ -180,9 +209,6 @@ export const getBombExplodedPositions = (
   return exploded;
 };
 
-/**
- * 指定プレイヤーのすべての合法手を取得
- */
 export const getValidMoves = (
   board: CellValue[][],
   player: Player,
@@ -211,35 +237,47 @@ export const getValidMoves = (
 };
 
 /**
- * 着手によってアンロックされる角ゾーンを判定（fortress または chaos）
+ * 着手によってアンロックされるゾーンを判定（第1段階 or 第2段階）
  */
 export const checkNewlyUnlockedZone = (
   row: number,
   col: number,
   rule: RuleType,
   unlocked: UnlockedZones
-): keyof UnlockedZones | null => {
+): { key: keyof UnlockedZones; phase: 1 | 2 } | null => {
   if (rule !== 'fortress' && rule !== 'chaos') return null;
 
-  if (row === ORIGINAL_CORNERS.topLeft.row && col === ORIGINAL_CORNERS.topLeft.col && !unlocked.topLeft) {
-    return 'topLeft';
+  // 1. 第1段階トリガー（元の8x8の角）
+  if (row === PHASE1_CORNERS.topLeft.row && col === PHASE1_CORNERS.topLeft.col && !unlocked.topLeft_1) {
+    return { key: 'topLeft_1', phase: 1 };
   }
-  if (row === ORIGINAL_CORNERS.topRight.row && col === ORIGINAL_CORNERS.topRight.col && !unlocked.topRight) {
-    return 'topRight';
+  if (row === PHASE1_CORNERS.topRight.row && col === PHASE1_CORNERS.topRight.col && !unlocked.topRight_1) {
+    return { key: 'topRight_1', phase: 1 };
   }
-  if (row === ORIGINAL_CORNERS.bottomLeft.row && col === ORIGINAL_CORNERS.bottomLeft.col && !unlocked.bottomLeft) {
-    return 'bottomLeft';
+  if (row === PHASE1_CORNERS.bottomLeft.row && col === PHASE1_CORNERS.bottomLeft.col && !unlocked.bottomLeft_1) {
+    return { key: 'bottomLeft_1', phase: 1 };
   }
-  if (row === ORIGINAL_CORNERS.bottomRight.row && col === ORIGINAL_CORNERS.bottomRight.col && !unlocked.bottomRight) {
-    return 'bottomRight';
+  if (row === PHASE1_CORNERS.bottomRight.row && col === PHASE1_CORNERS.bottomRight.col && !unlocked.bottomRight_1) {
+    return { key: 'bottomRight_1', phase: 1 };
+  }
+
+  // 2. 第2段階トリガー（第1要塞の角）
+  if (row === PHASE2_CORNERS.topLeft.row && col === PHASE2_CORNERS.topLeft.col && unlocked.topLeft_1 && !unlocked.topLeft_2) {
+    return { key: 'topLeft_2', phase: 2 };
+  }
+  if (row === PHASE2_CORNERS.topRight.row && col === PHASE2_CORNERS.topRight.col && unlocked.topRight_1 && !unlocked.topRight_2) {
+    return { key: 'topRight_2', phase: 2 };
+  }
+  if (row === PHASE2_CORNERS.bottomLeft.row && col === PHASE2_CORNERS.bottomLeft.col && unlocked.bottomLeft_1 && !unlocked.bottomLeft_2) {
+    return { key: 'bottomLeft_2', phase: 2 };
+  }
+  if (row === PHASE2_CORNERS.bottomRight.row && col === PHASE2_CORNERS.bottomRight.col && unlocked.bottomRight_1 && !unlocked.bottomRight_2) {
+    return { key: 'bottomRight_2', phase: 2 };
   }
 
   return null;
 };
 
-/**
- * 石を配置して盤面を更新
- */
 export const applyMove = (
   board: CellValue[][],
   row: number,
@@ -253,7 +291,7 @@ export const applyMove = (
   flipped: Position[];
   exploded: Position[];
   nextUnlocked: UnlockedZones;
-  newZoneUnlocked: keyof UnlockedZones | null;
+  newZoneUnlocked: { key: keyof UnlockedZones; phase: 1 | 2 } | null;
 } => {
   const standardFlipped = getFlippedPositions(board, row, col, player, rule, unlocked);
   if (standardFlipped.length === 0) {
@@ -284,7 +322,7 @@ export const applyMove = (
   const newZone = checkNewlyUnlockedZone(row, col, rule, unlocked);
   const nextUnlocked = { ...unlocked };
   if (newZone) {
-    nextUnlocked[newZone] = true;
+    nextUnlocked[newZone.key] = true;
   }
 
   return {
@@ -296,9 +334,6 @@ export const applyMove = (
   };
 };
 
-/**
- * 現在の石数をカウント
- */
 export const countScore = (
   board: CellValue[][],
   rule: RuleType,
@@ -319,9 +354,6 @@ export const countScore = (
   return { black, white };
 };
 
-/**
- * ゲーム終了判定
- */
 export const isGameOver = (
   board: CellValue[][],
   rule: RuleType,
@@ -332,9 +364,6 @@ export const isGameOver = (
   return blackMoves.length === 0 && whiteMoves.length === 0;
 };
 
-/**
- * 勝者を判定
- */
 export const getWinner = (
   board: CellValue[][],
   rule: RuleType,

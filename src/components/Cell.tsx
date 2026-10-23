@@ -45,8 +45,10 @@ export const Cell: React.FC<CellProps> = ({
     discAnimationClass = 'disc-place-pop';
   }
 
-  // 元の8x8の4隅（(1,1), (1,8), (8,1), (8,8)）は特別な金枠風ハイライト
-  const isOriginalCorner = (row === 1 || row === 8) && (col === 1 || col === 8);
+  // 元の8x8の4隅（(2,2), (2,9), (9,2), (9,9)）
+  const isOriginalCorner = (row === 2 || row === 9) && (col === 2 || col === 9);
+  // 第1要塞の4隅（第2覚醒トリガーマス: (1,1), (1,10), (10,1), (10,10)）
+  const isPhase2Corner = (row === 1 || row === 10) && (col === 1 || col === 10);
 
   return (
     <button
@@ -54,14 +56,21 @@ export const Cell: React.FC<CellProps> = ({
       onClick={onClick}
       disabled={disabled || (!isValidMove && !value)}
       className={`relative aspect-square w-full cell-border flex items-center justify-center cursor-pointer disabled:cursor-default transition-all duration-150 group p-0 m-0 ${
-        isNewlyUnlocked ? 'animate-pulse bg-amber-500/20 ring-1 ring-amber-400/60' : ''
-      } ${isOriginalCorner ? 'bg-amber-950/20' : ''}`}
+        isNewlyUnlocked ? 'animate-pulse bg-amber-500/25 ring-2 ring-amber-400' : ''
+      } ${isOriginalCorner ? 'bg-amber-950/25' : ''} ${isPhase2Corner ? 'bg-purple-950/25' : ''}`}
       aria-label={`マス (${row}, ${col})`}
     >
-      {/* 元の4隅の角マーク（拡張トリガーマスであることを示す小さな紋章） */}
+      {/* 元の4隅の角マーク（第1覚醒トリガー） */}
       {isOriginalCorner && !value && (
         <span className="absolute inset-0 flex items-center justify-center text-[8px] sm:text-[10px] text-amber-300/40 font-black pointer-events-none">
           🏰
+        </span>
+      )}
+
+      {/* 第1要塞の角マーク（第2覚醒トリガー） */}
+      {isPhase2Corner && !value && (
+        <span className="absolute inset-0 flex items-center justify-center text-[8px] sm:text-[10px] text-purple-300/50 font-black pointer-events-none">
+          ⚡
         </span>
       )}
 

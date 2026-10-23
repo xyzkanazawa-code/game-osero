@@ -42,7 +42,7 @@ interface HistoryItem {
 }
 
 export const App: React.FC = () => {
-  // ルール（デフォルトは盤面拡張）
+  // ルール（デフォルトは2段階拡張）
   const [rule, setRule] = useState<RuleType>('fortress');
   const [unlocked, setUnlocked] = useState<UnlockedZones>(createInitialUnlockedZones('fortress'));
   const [board, setBoard] = useState<CellValue[][]>(createInitialBoard('fortress'));
@@ -52,10 +52,10 @@ export const App: React.FC = () => {
   const [lastMove, setLastMove] = useState<Position | null>(null);
   const [isLastMoveBomb, setIsLastMoveBomb] = useState(false);
   const [flippingPositions, setFlippingPositions] = useState<Set<string>>(new Set());
-  const [newlyUnlockedZone, setNewlyUnlockedZone] = useState<keyof UnlockedZones | null>(null);
+  const [newlyUnlockedZone, setNewlyUnlockedZone] = useState<{ key: keyof UnlockedZones; phase: 1 | 2 } | null>(null);
   const [zoneAlertMessage, setZoneAlertMessage] = useState<string | null>(null);
 
-  // 💣 爆弾石関連ステート
+  // 💣 爆弾石
   const [bombsRemaining, setBombsRemaining] = useState<BombsRemaining>({ black: 1, white: 1 });
   const [isBombActive, setIsBombActive] = useState(false);
   const [isBombShaking, setIsBombShaking] = useState(false);
@@ -86,7 +86,6 @@ export const App: React.FC = () => {
   const zoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ゲームリセット
   const handleResetGame = useCallback((targetRule?: RuleType) => {
     const r = targetRule || rule;
     setBoard(createInitialBoard(r));
@@ -106,7 +105,7 @@ export const App: React.FC = () => {
     setIsGameOverModalOpen(false);
   }, [rule]);
 
-  // オンラインP2Pの初期化
+  // オンラインP2P
   useEffect(() => {
     p2pManager.init({
       onStatusChange: (status, msg) => {
@@ -172,7 +171,7 @@ export const App: React.FC = () => {
         useBomb
       );
 
-      // 💣 爆弾石の場合のサウンド & 画面シェイク
+      // 💣 爆弾石
       if (useBomb) {
         soundManager.playExplosion();
         setIsBombShaking(true);
@@ -189,22 +188,31 @@ export const App: React.FC = () => {
         soundManager.playFlipDiscs(flipped.length);
       }
 
-      // 🏰 四隅エリア出現時
+      // 🏰 第1段階または第2段階エリア出現時！
       if (newZoneUnlocked) {
         soundManager.playZoneUnlock();
         setNewlyUnlockedZone(newZoneUnlocked);
-        const zoneNames = {
-          topLeft: '左上',
-          topRight: '右上',
-          bottomLeft: '左下',
-          bottomRight: '右下'
+        const zoneNameMap: Record<string, string> = {
+          topLeft_1: '左上の第1要塞（7マス）',
+          topRight_1: '右上の第1要塞（7マス）',
+          bottomLeft_1: '左下の第1要塞（7マス）',
+          bottomRight_1: '右下の第1要塞（7マス）',
+          topLeft_2: '左上の第2要塞（5マス: 2+3）',
+          topRight_2: '右上の第2要塞（5マス: 2+3）',
+          bottomLeft_2: '左下の第2要塞（5マス: 2+3）',
+          bottomRight_2: '右下の第2要塞（5マス: 2+3）'
         };
-        setZoneAlertMessage(`⚠️ 警報！${zoneNames[newZoneUnlocked]}の7マス新エリアが解放されました！`);
+
+        const alertText = newZoneUnlocked.phase === 2
+          ? `🔥 第2覚醒！${zoneNameMap[newZoneUnlocked.key]}が解放されました！`
+          : `⚠️ 警報！${zoneNameMap[newZoneUnlocked.key]}が解放されました！`;
+
+        setZoneAlertMessage(alertText);
         if (zoneTimerRef.current) clearTimeout(zoneTimerRef.current);
         zoneTimerRef.current = setTimeout(() => {
           setZoneAlertMessage(null);
           setNewlyUnlockedZone(null);
-        }, 4000);
+        }, 4500);
       }
 
       // 反転アニメーション用座標
@@ -224,7 +232,6 @@ export const App: React.FC = () => {
       setLastMove({ row, col });
       setIsLastMoveBomb(useBomb);
 
-      // オンライン対戦時は相手に着手情報を送信
       if (mode === 'online' && sendToPeer) {
         p2pManager.sendMessage({
           type: 'move',
@@ -232,7 +239,7 @@ export const App: React.FC = () => {
         });
       }
 
-      // 次の手番を決定
+      // 次の手番
       const nextPlayer = getOpponent(player);
       const nextMoves = getValidMoves(nextBoard, nextPlayer, rule, nextUnlocked);
 
@@ -265,7 +272,6 @@ export const App: React.FC = () => {
     [board, lastMove, mode, rule, unlocked, bombsRemaining]
   );
 
-  // マスクリック時のハンドラ
   const handleCellClick = (row: number, col: number) => {
     if (isAiThinking || isFinished) return;
     if (mode === 'online' && turn !== myOnlineColor) return;
@@ -338,7 +344,6 @@ export const App: React.FC = () => {
     setZoneAlertMessage(null);
   };
 
-  // 投了
   const handleResign = () => {
     if (window.confirm('降参（投了）しますか？')) {
       if (mode === 'online') {
@@ -348,27 +353,23 @@ export const App: React.FC = () => {
     }
   };
 
-  // サウンドトグル
   const handleToggleSound = () => {
     const muted = soundManager.toggleMute();
     setIsMuted(muted);
   };
 
-  // 爆弾石トグル
   const handleToggleBomb = () => {
     if (bombsRemaining[turn] > 0) {
       setIsBombActive(!isBombActive);
     }
   };
 
-  // 🌟 メイン画面上のクイック・ルール切り替え（通常・盤面拡張・爆弾石・全部盛り）
   const handleQuickChangeRule = (newRule: RuleType) => {
     if (newRule === rule) return;
     setRule(newRule);
     handleResetGame(newRule);
   };
 
-  // 🌟 メイン画面上のクイック・対戦相手切り替え
   const handleQuickChangeMode = (newMode: GameMode) => {
     if (newMode === 'online') {
       setIsOnlineModalOpen(true);
@@ -379,7 +380,6 @@ export const App: React.FC = () => {
     handleResetGame(rule);
   };
 
-  // 🌟 メイン画面上のクイック・AI難易度切り替え
   const handleQuickChangeAiLevel = (newLevel: AiLevel) => {
     setAiLevel(newLevel);
     if (mode !== 'cpu') {
@@ -388,7 +388,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // モード選択モーダルからの確定
   const handleSelectCpu = (level: AiLevel, selectedRule: RuleType) => {
     setMode('cpu');
     setAiLevel(level);
@@ -437,7 +436,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-2 sm:p-4 max-w-[500px] mx-auto w-full selection:bg-emerald-500 selection:text-white">
-      {/* 上部ヘッダー（タイトル ＆ 対戦相手切替） */}
+      {/* 上部ヘッダー */}
       <header className="w-full flex items-center justify-between py-1 px-0.5">
         <div className="flex items-center gap-1.5">
           <div className="w-6 h-6 rounded-md bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
@@ -448,7 +447,7 @@ export const App: React.FC = () => {
           </h1>
         </div>
 
-        {/* 対戦モードクイック切替（CPU / 2人対面 / オンライン） */}
+        {/* 対戦モード切替 */}
         <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-lg">
           <button
             type="button"
@@ -489,10 +488,9 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* 🌟 【誰でも見える！】4大ルール・常時クイック切替タブバー */}
+      {/* 🌟 4大ルール・クイック切替バー */}
       <div className="w-full flex flex-col gap-1 my-1">
         <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900/90 rounded-xl border border-slate-800 shadow-md">
-          {/* 1. 通常 8x8 */}
           <button
             type="button"
             onClick={() => handleQuickChangeRule('classic')}
@@ -506,7 +504,6 @@ export const App: React.FC = () => {
             <span className="text-[8px] sm:text-[9px] opacity-80">8×8</span>
           </button>
 
-          {/* 2. 🏰 盤面拡張 (四隅7マス) */}
           <button
             type="button"
             onClick={() => handleQuickChangeRule('fortress')}
@@ -516,11 +513,10 @@ export const App: React.FC = () => {
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <span className="text-[11px] sm:text-xs">🏰 盤面拡張</span>
-            <span className="text-[8px] sm:text-[9px] opacity-80">四隅7マス</span>
+            <span className="text-[11px] sm:text-xs">🏰 2段拡張</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">7マス+5マス</span>
           </button>
 
-          {/* 3. 💣 爆弾石 */}
           <button
             type="button"
             onClick={() => handleQuickChangeRule('bomb')}
@@ -534,7 +530,6 @@ export const App: React.FC = () => {
             <span className="text-[8px] sm:text-[9px] opacity-80">3×3大爆破</span>
           </button>
 
-          {/* 4. 🔥 全部盛り */}
           <button
             type="button"
             onClick={() => handleQuickChangeRule('chaos')}
@@ -545,11 +540,11 @@ export const App: React.FC = () => {
             }`}
           >
             <span className="text-[11px] sm:text-xs">🔥 全部盛り</span>
-            <span className="text-[8px] sm:text-[9px] opacity-80">拡張＋爆弾</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">2段拡張+爆弾</span>
           </button>
         </div>
 
-        {/* CPU対戦時：初級・中級・上級クイック切替 */}
+        {/* CPU難易度切替 */}
         {mode === 'cpu' && (
           <div className="flex items-center justify-between px-1 py-0.5 text-[10px] text-slate-400 font-bold">
             <span>CPU難易度:</span>
@@ -632,7 +627,7 @@ export const App: React.FC = () => {
 
       {/* フッター */}
       <footer className="w-full text-center text-[9px] text-slate-500 py-0.5">
-        対戦オセロ (Reversi) © 2026 • マサ専用エディション
+        四隅2段階要塞オセロ © 2026 • マサ考案スペシャルエディション
       </footer>
 
       {/* モーダル群 */}

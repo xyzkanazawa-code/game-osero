@@ -1,7 +1,7 @@
 import React from 'react';
 import { CellValue, Move, Player, Position, RuleType, UnlockedZones } from '../types/othello';
 import { Cell } from './Cell';
-import { FORTRESS_ZONE_CELLS, isCellActive } from '../utils/othelloLogic';
+import { FORTRESS_ZONE_PHASE1, FORTRESS_ZONE_PHASE2, isCellActive } from '../utils/othelloLogic';
 
 interface BoardProps {
   board: CellValue[][];
@@ -12,7 +12,7 @@ interface BoardProps {
   isLastMoveBomb?: boolean;
   isBombShaking?: boolean;
   flippingPositions: Set<string>;
-  newlyUnlockedZone: keyof UnlockedZones | null;
+  newlyUnlockedZone: { key: keyof UnlockedZones; phase: 1 | 2 } | null;
   turn: Player;
   onCellClick: (row: number, col: number) => void;
   disabled: boolean;
@@ -53,11 +53,11 @@ export const Board: React.FC<BoardProps> = ({
           </div>
 
           <div className="grid grid-cols-8 w-full aspect-square border-2 border-emerald-950/70 rounded overflow-hidden bg-emerald-800/30">
-            {/* 行1..8, 列1..8 の中央8x8をマッピング */}
+            {/* 行2..9, 列2..9 の中央8x8をマッピング */}
             {Array.from({ length: 8 }, (_, rIdx) => {
-              const r = rIdx + 1;
+              const r = rIdx + 2;
               return Array.from({ length: 8 }, (_, cIdx) => {
-                const c = cIdx + 1;
+                const c = cIdx + 2;
                 const posKey = `${r},${c}`;
                 const isValid = validMoveMap.has(posKey);
                 const flipCount = validMoveMap.get(posKey) || 0;
@@ -89,11 +89,11 @@ export const Board: React.FC<BoardProps> = ({
     );
   }
 
-  // 2. 🏰 四隅7マス拡張 (Fortress) または 全部盛り (Chaos) の場合: 10x10の超巨大・高密度盤面
+  // 2. 🏰 2段階四隅拡張 (Fortress) または 全部盛り (Chaos) の場合: 12x12
   return (
     <div className={`w-full flex flex-col items-center justify-center my-1 select-none ${isBombShaking ? 'bomb-shake' : ''}`}>
       <div className="felt-board p-1.5 sm:p-2.5 w-full max-w-[min(96vw,460px)] flex flex-col box-border shadow-2xl relative">
-        <div className="grid grid-cols-10 w-full aspect-square border-2 border-emerald-950/60 rounded overflow-hidden bg-slate-950/50">
+        <div className="grid grid-cols-12 w-full aspect-square border-2 border-emerald-950/60 rounded overflow-hidden bg-slate-950/50">
           {board.map((rowArr, r) =>
             rowArr.map((cellValue, c) => {
               const posKey = `${r},${c}`;
@@ -103,10 +103,17 @@ export const Board: React.FC<BoardProps> = ({
               const isLast = lastMove ? lastMove.row === r && lastMove.col === c : false;
               const isFlipping = flippingPositions.has(posKey);
 
-              // 解放された直後の7マスか判定
+              // 新しく解放されたマスか判定
               let isNewlyUnlocked = false;
-              if (newlyUnlockedZone && FORTRESS_ZONE_CELLS[newlyUnlockedZone].some((p) => p.r === r && p.c === c)) {
-                isNewlyUnlocked = true;
+              if (newlyUnlockedZone) {
+                const { key, phase } = newlyUnlockedZone;
+                if (phase === 1) {
+                  const zKey = key.replace('_1', '') as keyof typeof FORTRESS_ZONE_PHASE1;
+                  if (FORTRESS_ZONE_PHASE1[zKey]?.some((p) => p.r === r && p.c === c)) isNewlyUnlocked = true;
+                } else if (phase === 2) {
+                  const zKey = key.replace('_2', '') as keyof typeof FORTRESS_ZONE_PHASE2;
+                  if (FORTRESS_ZONE_PHASE2[zKey]?.some((p) => p.r === r && p.c === c)) isNewlyUnlocked = true;
+                }
               }
 
               return (

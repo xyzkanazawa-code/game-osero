@@ -13,14 +13,15 @@ import {
   getValidMoves,
   GRID_SIZE,
   isCellActive,
-  ORIGINAL_CORNERS
+  PHASE1_CORNERS,
+  PHASE2_CORNERS
 } from './othelloLogic';
 
-// 10x10 重みテーブル
+// 12x12 重みテーブル
 const generateWeightTable = (): number[][] => {
   const table = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0));
 
-  // 中央8x8（行1..8, 列1..8）の標準オセロ重み
+  // 中央8x8（行2..9, 列2..9）の標準オセロ重み
   const base8: number[][] = [
     [ 100, -25,  10,   5,   5,  10, -25,  100],
     [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
@@ -34,26 +35,17 @@ const generateWeightTable = (): number[][] => {
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      table[r + 1][c + 1] = base8[r][c];
+      table[r + 2][c + 2] = base8[r][c];
     }
   }
 
-  // 四隅外周7マス（最先端の角は150点）
-  // 左上
-  table[0][0] = 150; table[0][1] = 20; table[0][2] = 15; table[0][3] = 10;
-  table[1][0] = 20;  table[2][0] = 15; table[3][0] = 10;
+  // 第1要塞角（130点）
+  table[1][1] = 130; table[1][10] = 130;
+  table[10][1] = 130; table[10][10] = 130;
 
-  // 右上
-  table[0][9] = 150; table[0][8] = 20; table[0][7] = 15; table[0][6] = 10;
-  table[1][9] = 20;  table[2][9] = 15; table[3][9] = 10;
-
-  // 左下
-  table[9][0] = 150; table[9][1] = 20; table[9][2] = 15; table[9][3] = 10;
-  table[8][0] = 20;  table[7][0] = 15; table[6][0] = 10;
-
-  // 右下
-  table[9][9] = 150; table[9][8] = 20; table[9][7] = 15; table[9][6] = 10;
-  table[8][9] = 20;  table[7][9] = 15; table[6][9] = 10;
+  // 第2要塞最果て角（180点の最高得点！）
+  table[0][0] = 180; table[0][11] = 180;
+  table[11][0] = 180; table[11][11] = 180;
 
   return table;
 };
@@ -117,14 +109,15 @@ export const calculateAiMove = (
       chosenMove = sorted[0];
     }
   } else {
-    // 角マス優先
+    // 角マス最優先
     const highPriorityCorners = [
-      { r: 1, c: 1 }, { r: 1, c: 8 }, { r: 8, c: 1 }, { r: 8, c: 8 },
-      { r: 0, c: 0 }, { r: 0, c: 9 }, { r: 9, c: 0 }, { r: 9, c: 9 }
+      PHASE1_CORNERS.topLeft, PHASE1_CORNERS.topRight, PHASE1_CORNERS.bottomLeft, PHASE1_CORNERS.bottomRight,
+      PHASE2_CORNERS.topLeft, PHASE2_CORNERS.topRight, PHASE2_CORNERS.bottomLeft, PHASE2_CORNERS.bottomRight,
+      { row: 0, col: 0 }, { row: 0, col: 11 }, { row: 11, col: 0 }, { row: 11, col: 11 }
     ];
 
     const cornerMove = validMoves.find((m) =>
-      highPriorityCorners.some((c) => c.r === m.row && c.c === m.col)
+      highPriorityCorners.some((c) => c.row === m.row && c.col === m.col)
     );
 
     if (cornerMove) {

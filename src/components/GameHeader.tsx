@@ -1,6 +1,6 @@
 import React from 'react';
 import { AiLevel, BombsRemaining, GameMode, Player, RuleType, Score, UnlockedZones } from '../types/othello';
-import { Bot, User, Globe, AlertCircle, ShieldAlert, Bomb } from 'lucide-react';
+import { Bot, User, Globe, AlertCircle, ShieldAlert } from 'lucide-react';
 
 interface GameHeaderProps {
   score: Score;
@@ -53,14 +53,8 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
   };
 
   const hasBomb = rule === 'bomb' || rule === 'chaos';
-  const hasFortress = rule === 'fortress' || rule === 'chaos';
 
-  const unlockedCount = [
-    unlocked.topLeft,
-    unlocked.topRight,
-    unlocked.bottomLeft,
-    unlocked.bottomRight
-  ].filter(Boolean).length;
+  const unlockedCount = Object.values(unlocked).filter(Boolean).length;
 
   return (
     <div className="w-full mb-1">
@@ -87,14 +81,14 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
             }`}
           >
             {rule === 'chaos' ? (
-              <span>🔥 拡張＋爆弾石</span>
+              <span>🔥 2段拡張＋爆弾</span>
             ) : rule === 'bomb' ? (
               <span>💣 爆弾石モード</span>
             ) : rule === 'fortress' ? (
               <>
-                <span>🏰 盤面拡張</span>
+                <span>🏰 2段階拡張</span>
                 <span className="text-[9px] bg-amber-400 text-slate-950 px-1 rounded font-extrabold">
-                  {unlockedCount}/4
+                  {unlockedCount}/8
                 </span>
               </>
             ) : (

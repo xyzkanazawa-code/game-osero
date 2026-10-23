@@ -2,11 +2,6 @@ export type Player = 'black' | 'white';
 
 export type CellValue = Player | null;
 
-// ルール種別:
-// classic: 通常 8x8
-// fortress: 盤面拡張（角を取ると四隅に3x3エリア出現）
-// bomb: 爆弾石モード（周囲3x3を一斉爆破自色化）
-// chaos: 四隅拡張 + 爆弾石（全部盛り）
 export type RuleType = 'classic' | 'fortress' | 'bomb' | 'chaos';
 
 export interface Position {
@@ -33,11 +28,19 @@ export interface Score {
   white: number;
 }
 
+// 🏰 2段階拡張ゾーン管理
+// _1: 第1段階（7マス L字帯）
+// _2: 第2段階（5マス 2+3 L字帯）
 export interface UnlockedZones {
-  topLeft: boolean;
-  topRight: boolean;
-  bottomLeft: boolean;
-  bottomRight: boolean;
+  topLeft_1: boolean;
+  topRight_1: boolean;
+  bottomLeft_1: boolean;
+  bottomRight_1: boolean;
+
+  topLeft_2: boolean;
+  topRight_2: boolean;
+  bottomLeft_2: boolean;
+  bottomRight_2: boolean;
 }
 
 export interface BombsRemaining {
@@ -54,7 +57,6 @@ export interface GameRecord {
   isBomb?: boolean;
 }
 
-// オンライン通信用メッセージ構造
 export type P2PMessage =
   | { type: 'join'; playerName: string }
   | { type: 'ready'; color: Player; rule?: RuleType }
