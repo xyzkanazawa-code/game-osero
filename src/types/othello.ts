@@ -48,6 +48,32 @@ export interface BombsRemaining {
   white: number;
 }
 
+// 🃏 特殊スキルタイプ
+export type SkillType = 'shield' | 'colorBomb' | 'timeStop' | 'reverse';
+
+export interface PlayerSkills {
+  shield: number;    // 🛡️ 鉄壁石（絶対に裏返らない）
+  colorBomb: number; // 🎨 カラーボム（3x3塗り替え）
+  timeStop: number;  // ⚡ タイムストップ（もう1回自分の手番）
+  reverse: number;   // 🔄 リバース（全反転）
+}
+
+// 🎲 天変地異ルーレットイベント
+export type RouletteEvent =
+  | 'gale'      // 🌪️ 突風（石がスライド）
+  | 'eclipse'   // 🌘 日食（全反転）
+  | 'lightning' // ⚡ 落雷（ランダム地点がひっくり返る）
+  | 'midas'     // 💰 黄金変異（石が3点分のゴールドに）
+  | 'peace';    // 🕊️ 平穏（何も起きない）
+
+// 盤面装飾（シールド・ゴールド等）
+export interface CellModifiers {
+  [coordKey: string]: {
+    isShield?: boolean;
+    isGold?: boolean;
+  };
+}
+
 export interface GameRecord {
   moveNumber: number;
   player: Player;
@@ -59,8 +85,10 @@ export interface GameRecord {
 
 export type P2PMessage =
   | { type: 'join'; playerName: string }
-  | { type: 'ready'; color: Player; rule?: RuleType }
-  | { type: 'move'; move: { row: number; col: number; player: Player; isBomb?: boolean } }
+  | { type: 'ready'; color: Player; rule?: RuleType; enableSkills?: boolean; enableRoulette?: boolean }
+  | { type: 'move'; move: { row: number; col: number; player: Player; isBomb?: boolean; isShield?: boolean } }
+  | { type: 'skill'; skill: SkillType; player: Player; position?: Position }
+  | { type: 'roulette'; event: RouletteEvent }
   | { type: 'pass'; player: Player }
   | { type: 'restart' }
   | { type: 'resign'; player: Player }

@@ -1,5 +1,6 @@
 import {
   AiLevel,
+  CellModifiers,
   CellValue,
   Move,
   Player,
@@ -94,9 +95,10 @@ export const calculateAiMove = (
   level: AiLevel,
   rule: RuleType,
   unlocked: UnlockedZones,
-  bombsAvailable: number = 0
+  bombsAvailable: number = 0,
+  modifiers?: CellModifiers
 ): Move | null => {
-  const validMoves = getValidMoves(board, player, rule, unlocked);
+  const validMoves = getValidMoves(board, player, rule, unlocked, modifiers);
   if (validMoves.length === 0) return null;
 
   let chosenMove: Move;
@@ -127,7 +129,7 @@ export const calculateAiMove = (
       let bestMoves: Move[] = [];
 
       for (const move of validMoves) {
-        const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, player, rule, unlocked, false);
+        const { nextBoard, nextUnlocked } = applyMove(board, move.row, move.col, player, rule, unlocked, false, modifiers);
         const score = evaluateBoard(nextBoard, player, rule, nextUnlocked);
 
         if (score > bestScore) {

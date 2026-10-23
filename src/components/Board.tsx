@@ -1,5 +1,5 @@
 import React from 'react';
-import { CellValue, Move, Player, Position, RuleType, UnlockedZones } from '../types/othello';
+import { CellModifiers, CellValue, Move, Player, Position, RuleType, UnlockedZones } from '../types/othello';
 import { Cell } from './Cell';
 import { FORTRESS_ZONE_PHASE1, FORTRESS_ZONE_PHASE2, isCellActive } from '../utils/othelloLogic';
 
@@ -7,6 +7,7 @@ interface BoardProps {
   board: CellValue[][];
   rule: RuleType;
   unlocked: UnlockedZones;
+  modifiers?: CellModifiers;
   validMoves: Move[];
   lastMove: Position | null;
   isLastMoveBomb?: boolean;
@@ -24,6 +25,7 @@ export const Board: React.FC<BoardProps> = ({
   board,
   rule,
   unlocked,
+  modifiers,
   validMoves,
   lastMove,
   isLastMoveBomb = false,
@@ -63,6 +65,8 @@ export const Board: React.FC<BoardProps> = ({
                 const flipCount = validMoveMap.get(posKey) || 0;
                 const isLast = lastMove ? lastMove.row === r && lastMove.col === c : false;
                 const isFlipping = flippingPositions.has(posKey);
+                const isShield = !!modifiers?.[posKey]?.isShield;
+                const isGold = !!modifiers?.[posKey]?.isGold;
 
                 return (
                   <Cell
@@ -77,6 +81,8 @@ export const Board: React.FC<BoardProps> = ({
                     isLastBomb={isLast && isLastMoveBomb}
                     isValidMove={isValid}
                     flipCount={flipCount}
+                    isShield={isShield}
+                    isGold={isGold}
                     onClick={() => onCellClick(r, c)}
                     disabled={disabled}
                   />
@@ -102,6 +108,8 @@ export const Board: React.FC<BoardProps> = ({
               const flipCount = validMoveMap.get(posKey) || 0;
               const isLast = lastMove ? lastMove.row === r && lastMove.col === c : false;
               const isFlipping = flippingPositions.has(posKey);
+              const isShield = !!modifiers?.[posKey]?.isShield;
+              const isGold = !!modifiers?.[posKey]?.isGold;
 
               // 新しく解放されたマスか判定
               let isNewlyUnlocked = false;
@@ -130,6 +138,8 @@ export const Board: React.FC<BoardProps> = ({
                   isValidMove={isValid}
                   flipCount={flipCount}
                   isNewlyUnlocked={isNewlyUnlocked}
+                  isShield={isShield}
+                  isGold={isGold}
                   onClick={() => onCellClick(r, c)}
                   disabled={disabled}
                 />

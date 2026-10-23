@@ -1,16 +1,26 @@
 import {
   CellValue,
+  CellModifiers,
   Move,
   Player,
+  PlayerSkills,
   Position,
+  RouletteEvent,
   RuleType,
   Score,
+  SkillType,
   UnlockedZones
 } from '../types/othello';
 
 // グリッドサイズ: 12x12 (中央8x8 + 第1層10x10 + 第2層12x12)
 export const GRID_SIZE = 12;
 export const OFFSET = 2; // 中央8x8は行2..9, 列2..9
+
+// 初期スキル数
+export const createInitialSkills = (): { black: PlayerSkills; white: PlayerSkills } => ({
+  black: { shield: 1, colorBomb: 1, timeStop: 1, reverse: 1 },
+  white: { shield: 1, colorBomb: 1, timeStop: 1, reverse: 1 }
+});
 
 // 8方向ベクトル
 export const DIRECTIONS: [number, number][] = [
@@ -156,7 +166,8 @@ export const getFlippedPositions = (
   col: number,
   player: Player,
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): Position[] => {
   if (!isCellActive(row, col, rule, unlocked) || board[row][col] !== null) {
     return [];
@@ -171,7 +182,11 @@ export const getFlippedPositions = (
     let c = col + dc;
 
     while (isCellActive(r, c, rule, unlocked) && board[r][c] === opponent) {
-      directionFlipped.push({ row: r, col: c });
+      // 🛡️ シールド石（鉄壁石）は裏返らない
+      const isShield = modifiers?.[`${r},${c}`]?.isShield;
+      if (!isShield) {
+        directionFlipped.push({ row: r, col: c });
+      }
       r += dr;
       c += dc;
     }
@@ -190,7 +205,8 @@ export const getBombExplodedPositions = (
   col: number,
   player: Player,
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): Position[] => {
   const opponent = getOpponent(player);
   const exploded: Position[] = [];
@@ -200,7 +216,11 @@ export const getBombExplodedPositions = (
       if (dr === 0 && dc === 0) continue;
       const r = row + dr;
       const c = col + dc;
-      if (isCellActive(r, c, rule, unlocked) && board[r][c] === opponent) {
+      if (
+        isCellActive(r, c, rule, unlocked) &&
+        board[r][c] === opponent &&
+        !modifiers?.[`${r},${c}`]?.isShield
+      ) {
         exploded.push({ row: r, col: c });
       }
     }
@@ -213,14 +233,15 @@ export const getValidMoves = (
   board: CellValue[][],
   player: Player,
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): Move[] => {
   const moves: Move[] = [];
 
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isCellActive(r, c, rule, unlocked) && board[r][c] === null) {
-        const flipped = getFlippedPositions(board, r, c, player, rule, unlocked);
+        const flipped = getFlippedPositions(board, r, c, player, rule, unlocked, modifiers);
         if (flipped.length > 0) {
           moves.push({
             row: r,
@@ -285,7 +306,8 @@ export const applyMove = (
   player: Player,
   rule: RuleType,
   unlocked: UnlockedZones,
-  isBomb: boolean = false
+  isBomb: boolean = false,
+  modifiers?: CellModifiers
 ): {
   nextBoard: CellValue[][];
   flipped: Position[];
@@ -293,7 +315,7 @@ export const applyMove = (
   nextUnlocked: UnlockedZones;
   newZoneUnlocked: { key: keyof UnlockedZones; phase: 1 | 2 } | null;
 } => {
-  const standardFlipped = getFlippedPositions(board, row, col, player, rule, unlocked);
+  const standardFlipped = getFlippedPositions(board, row, col, player, rule, unlocked, modifiers);
   if (standardFlipped.length === 0) {
     throw new Error(`無効な着手です: (${row}, ${col}) for ${player}`);
   }
@@ -307,7 +329,7 @@ export const applyMove = (
 
   let exploded: Position[] = [];
   if (isBomb) {
-    exploded = getBombExplodedPositions(board, row, col, player, rule, unlocked);
+    exploded = getBombExplodedPositions(board, row, col, player, rule, unlocked, modifiers);
     for (const pos of exploded) {
       nextBoard[pos.row][pos.col] = player;
     }
@@ -337,7 +359,8 @@ export const applyMove = (
 export const countScore = (
   board: CellValue[][],
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): Score => {
   let black = 0;
   let white = 0;
@@ -345,8 +368,13 @@ export const countScore = (
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (isCellActive(r, c, rule, unlocked)) {
-        if (board[r][c] === 'black') black++;
-        else if (board[r][c] === 'white') white++;
+        const val = board[r][c];
+        if (val) {
+          const isGold = modifiers?.[`${r},${c}`]?.isGold;
+          const points = isGold ? 3 : 1;
+          if (val === 'black') black += points;
+          else if (val === 'white') white += points;
+        }
       }
     }
   }
@@ -357,20 +385,217 @@ export const countScore = (
 export const isGameOver = (
   board: CellValue[][],
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): boolean => {
-  const blackMoves = getValidMoves(board, 'black', rule, unlocked);
-  const whiteMoves = getValidMoves(board, 'white', rule, unlocked);
+  const blackMoves = getValidMoves(board, 'black', rule, unlocked, modifiers);
+  const whiteMoves = getValidMoves(board, 'white', rule, unlocked, modifiers);
   return blackMoves.length === 0 && whiteMoves.length === 0;
 };
 
 export const getWinner = (
   board: CellValue[][],
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
 ): Player | 'draw' => {
-  const score = countScore(board, rule, unlocked);
+  const score = countScore(board, rule, unlocked, modifiers);
   if (score.black > score.white) return 'black';
   if (score.white > score.black) return 'white';
   return 'draw';
+};
+
+/**
+ * 🎨 カラーボム発動: 指定マスを中心に3×3をプレイヤーの色に強制変換
+ */
+export const executeColorBomb = (
+  board: CellValue[][],
+  centerR: number,
+  centerC: number,
+  player: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones,
+  modifiers?: CellModifiers
+): { nextBoard: CellValue[][]; changedPositions: Position[] } => {
+  const nextBoard = board.map((r) => [...r]);
+  const changedPositions: Position[] = [];
+
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const r = centerR + dr;
+      const c = centerC + dc;
+      if (isCellActive(r, c, rule, unlocked)) {
+        // シールド石は無効化されない
+        if (!modifiers?.[`${r},${c}`]?.isShield) {
+          nextBoard[r][c] = player;
+          changedPositions.push({ row: r, col: c });
+        }
+      }
+    }
+  }
+
+  return { nextBoard, changedPositions };
+};
+
+/**
+ * 🔄 全反転（リバース）発動: 盤面上の全石の白黒を入れ替える
+ */
+export const executeBoardReverse = (
+  board: CellValue[][],
+  modifiers?: CellModifiers
+): { nextBoard: CellValue[][]; changedPositions: Position[] } => {
+  const nextBoard = board.map((r) => [...r]);
+  const changedPositions: Position[] = [];
+
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const val = nextBoard[r][c];
+      if (val !== null) {
+        // シールド石であっても全反転は効くか？（ゲームとして盛り上がるため全反転はすべてをひっくり返す）
+        nextBoard[r][c] = val === 'black' ? 'white' : 'black';
+        changedPositions.push({ row: r, col: c });
+      }
+    }
+  }
+
+  return { nextBoard, changedPositions };
+};
+
+/**
+ * 🎲 天変地異ルーレットイベントの実行
+ */
+export const executeRouletteEvent = (
+  board: CellValue[][],
+  rule: RuleType,
+  unlocked: UnlockedZones,
+  event: RouletteEvent,
+  modifiers: CellModifiers
+): {
+  nextBoard: CellValue[][];
+  nextModifiers: CellModifiers;
+  affectedPositions: Position[];
+  message: string;
+} => {
+  const nextBoard = board.map((r) => [...r]);
+  const nextModifiers = { ...modifiers };
+  const affectedPositions: Position[] = [];
+  let message = '';
+
+  switch (event) {
+    case 'gale': {
+      // 突風: ランダムな1方向（上・下・左・右）へ石が1マスズレる
+      const dirs: [number, number, string][] = [
+        [-1, 0, '北（上）'],
+        [1, 0, '南（下）'],
+        [0, -1, '西（左）'],
+        [0, 1, '東（右）']
+      ];
+      const [dr, dc, dirName] = dirs[Math.floor(Math.random() * dirs.length)];
+      message = `🌪️ 突風が吹き荒れた！すべての石が【${dirName}】へ1マス移動！`;
+
+      const tempBoard: CellValue[][] = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+      const tempMods: CellModifiers = {};
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (nextBoard[r][c] !== null) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (isCellActive(nr, nc, rule, unlocked)) {
+              tempBoard[nr][nc] = nextBoard[r][c];
+              if (nextModifiers[`${r},${c}`]) {
+                tempMods[`${nr},${nc}`] = nextModifiers[`${r},${c}`];
+              }
+              affectedPositions.push({ row: nr, col: nc });
+            }
+          }
+        }
+      }
+
+      // ボードとモディファイアを更新
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (isCellActive(r, c, rule, unlocked)) {
+            nextBoard[r][c] = tempBoard[r][c];
+          }
+        }
+      }
+      Object.keys(nextModifiers).forEach((k) => delete nextModifiers[k]);
+      Object.assign(nextModifiers, tempMods);
+      break;
+    }
+
+    case 'eclipse': {
+      // 日食: 盤面の白黒が全反転！
+      message = '🌘 皆既日食が発生！光と闇が入れ替わった！（白黒全反転）';
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (nextBoard[r][c] !== null && isCellActive(r, c, rule, unlocked)) {
+            nextBoard[r][c] = nextBoard[r][c] === 'black' ? 'white' : 'black';
+            affectedPositions.push({ row: r, col: c });
+          }
+        }
+      }
+      break;
+    }
+
+    case 'lightning': {
+      // 落雷: 石のある場所からランダムに1〜2箇所直撃し、相手色に強制反転
+      const occupied: Position[] = [];
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (nextBoard[r][c] !== null && isCellActive(r, c, rule, unlocked)) {
+            occupied.push({ row: r, col: c });
+          }
+        }
+      }
+      if (occupied.length > 0) {
+        const targetCount = Math.min(2, occupied.length);
+        const shuffled = [...occupied].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < targetCount; i++) {
+          const pos = shuffled[i];
+          const curr = nextBoard[pos.row][pos.col]!;
+          nextBoard[pos.row][pos.col] = curr === 'black' ? 'white' : 'black';
+          affectedPositions.push(pos);
+        }
+        message = `⚡ 盤面に落雷が直撃！${targetCount}箇所の石が反転した！`;
+      } else {
+        message = '⚡ 盤面に落雷が落ちたが、石がなかった！';
+      }
+      break;
+    }
+
+    case 'midas': {
+      // 黄金変異: 石のある場所からランダムに2箇所が「黄金石（3点）」に変異！
+      const occupied: Position[] = [];
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (nextBoard[r][c] !== null && isCellActive(r, c, rule, unlocked)) {
+            occupied.push({ row: r, col: c });
+          }
+        }
+      }
+      if (occupied.length > 0) {
+        const targetCount = Math.min(2, occupied.length);
+        const shuffled = [...occupied].sort(() => Math.random() - 0.5);
+        for (let i = 0; i < targetCount; i++) {
+          const pos = shuffled[i];
+          const key = `${pos.row},${pos.col}`;
+          nextModifiers[key] = { ...(nextModifiers[key] || {}), isGold: true };
+          affectedPositions.push(pos);
+        }
+        message = `💰 黄金変異！ランダムな${targetCount}箇所の石が【黄金石（3点）】に変化！`;
+      } else {
+        message = '💰 黄金の光が降り注いだが、石がなかった！';
+      }
+      break;
+    }
+
+    case 'peace':
+    default:
+      message = '🕊️ 天変地異ルーレット: 平穏な風が吹き抜けた（何も起こらなかった）';
+      break;
+  }
+
+  return { nextBoard, nextModifiers, affectedPositions, message };
 };

@@ -2,20 +2,28 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AiLevel,
   BombsRemaining,
+  CellModifiers,
   CellValue,
   GameMode,
   Move,
   Player,
+  PlayerSkills,
   Position,
+  RouletteEvent,
   RuleType,
   Score,
+  SkillType,
   UnlockedZones
 } from './types/othello';
 import {
   applyMove,
   countScore,
   createInitialBoard,
+  createInitialSkills,
   createInitialUnlockedZones,
+  executeBoardReverse,
+  executeColorBomb,
+  executeRouletteEvent,
   getOpponent,
   getValidMoves,
   getWinner,
@@ -30,7 +38,10 @@ import { GameControls } from './components/GameControls';
 import { ModeSelector } from './components/ModeSelector';
 import { OnlineModal } from './components/OnlineModal';
 import { GameOverModal } from './components/GameOverModal';
-import { Bot, User, Globe } from 'lucide-react';
+import { RulesModal } from './components/RulesModal';
+import { SkillBar } from './components/SkillBar';
+import { RouletteModal } from './components/RouletteModal';
+import { Bot, User, Globe, BookOpen, Dices, Sparkles } from 'lucide-react';
 
 interface HistoryItem {
   board: CellValue[][];
@@ -60,6 +71,17 @@ export const App: React.FC = () => {
   const [isBombActive, setIsBombActive] = useState(false);
   const [isBombShaking, setIsBombShaking] = useState(false);
 
+  // 🃏 特殊スキル & 🎲 天変地異ルーレット
+  const [enableSkills, setEnableSkills] = useState(true);
+  const [enableRoulette, setEnableRoulette] = useState(true);
+  const [skills, setSkills] = useState<{ black: PlayerSkills; white: PlayerSkills }>(createInitialSkills());
+  const [activeSkill, setActiveSkill] = useState<SkillType | null>(null);
+  const [cellModifiers, setCellModifiers] = useState<CellModifiers>({});
+  const [moveCount, setMoveCount] = useState(0);
+  const [pendingTimeStop, setPendingTimeStop] = useState(false);
+  const [isRouletteModalOpen, setIsRouletteModalOpen] = useState(false);
+  const [rouletteAlertMessage, setRouletteAlertMessage] = useState<string | null>(null);
+
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [passMessage, setPassMessage] = useState<string | null>(null);
@@ -69,6 +91,7 @@ export const App: React.FC = () => {
   const [isModeModalOpen, setIsModeModalOpen] = useState(false);
   const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
   const [isGameOverModalOpen, setIsGameOverModalOpen] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
 
   // オンライン対戦
   const [onlineStatus, setOnlineStatus] = useState<ConnectionStatus>('disconnected');
@@ -77,10 +100,10 @@ export const App: React.FC = () => {
   const [myOnlineColor, setMyOnlineColor] = useState<Player>('black');
 
   // スコアと有効手
-  const score: Score = countScore(board, rule, unlocked);
-  const validMoves: Move[] = getValidMoves(board, turn, rule, unlocked);
-  const isFinished = checkIsGameOver(board, rule, unlocked);
-  const winner = isFinished ? getWinner(board, rule, unlocked) : 'draw';
+  const score: Score = countScore(board, rule, unlocked, cellModifiers);
+  const validMoves: Move[] = getValidMoves(board, turn, rule, unlocked, cellModifiers);
+  const isFinished = checkIsGameOver(board, rule, unlocked, cellModifiers);
+  const winner = isFinished ? getWinner(board, rule, unlocked, cellModifiers) : 'draw';
 
   const passTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,10 +116,22 @@ export const App: React.FC = () => {
     setBombsRemaining({ black: 1, white: 1 });
     setIsBombActive(false);
     setIsBombShaking(false);
+    setSkills(createInitialSkills());
+    setActiveSkill(null);
+    setCellModifiers({});
+    setMoveCount(0);
+    setPendingTimeStop(false);
+    setIsRouletteModalOpen(false);
+    setRouletteAlertMessage(null);
     setTurn('black');
     setLastMove(null);
     setIsLastMoveBomb(false);
     setFlippingPositions(new Set());
+    setNewlyUnlockedZone(null);
+    setZoneAlertMessage(null);
+    setHistory([]);
+    setIsAiThinking(false);
+    setPassMessage(null);
     setNewlyUnlockedZone(null);
     setZoneAlertMessage(null);
     setHistory([]);
@@ -160,7 +195,14 @@ export const App: React.FC = () => {
 
   // 石を打つ処理
   const executeMove = useCallback(
-    (row: number, col: number, player: Player, useBomb: boolean = false, sendToPeer: boolean = true) => {
+    (
+      row: number,
+      col: number,
+      player: Player,
+      useBomb: boolean = false,
+      useShield: boolean = false,
+      sendToPeer: boolean = true
+    ) => {
       const { nextBoard, flipped, exploded, nextUnlocked, newZoneUnlocked } = applyMove(
         board,
         row,
@@ -168,8 +210,21 @@ export const App: React.FC = () => {
         player,
         rule,
         unlocked,
-        useBomb
+        useBomb,
+        cellModifiers
       );
+
+      // シールド（鉄壁石）付与
+      const nextModifiers = { ...cellModifiers };
+      if (useShield) {
+        nextModifiers[`${row},${col}`] = { ...(nextModifiers[`${row},${col}`] || {}), isShield: true };
+        setSkills((prev) => ({
+          ...prev,
+          [player]: { ...prev[player], shield: Math.max(0, prev[player].shield - 1) }
+        }));
+        setActiveSkill(null);
+      }
+      setCellModifiers(nextModifiers);
 
       // 💣 爆弾石
       if (useBomb) {
@@ -232,22 +287,43 @@ export const App: React.FC = () => {
       setLastMove({ row, col });
       setIsLastMoveBomb(useBomb);
 
+      // 手数カウント & 天変地異ルーレット判定（8手ごと）
+      const nextMoveCount = moveCount + 1;
+      setMoveCount(nextMoveCount);
+
+      if (enableRoulette && nextMoveCount > 0 && nextMoveCount % 8 === 0) {
+        setIsRouletteModalOpen(true);
+      }
+
       if (mode === 'online' && sendToPeer) {
         p2pManager.sendMessage({
           type: 'move',
-          move: { row, col, player, isBomb: useBomb }
+          move: { row, col, player, isBomb: useBomb, isShield: useShield }
         });
+      }
+
+      // ⚡ タイムストップ（二連撃）発動中か判定
+      if (pendingTimeStop) {
+        setPendingTimeStop(false);
+        const continuedMoves = getValidMoves(nextBoard, player, rule, nextUnlocked, nextModifiers);
+        if (continuedMoves.length > 0) {
+          setTurn(player);
+          setPassMessage('⚡ タイムストップ！連続であなたのターン！');
+          if (passTimerRef.current) clearTimeout(passTimerRef.current);
+          passTimerRef.current = setTimeout(() => setPassMessage(null), 3000);
+          return;
+        }
       }
 
       // 次の手番
       const nextPlayer = getOpponent(player);
-      const nextMoves = getValidMoves(nextBoard, nextPlayer, rule, nextUnlocked);
+      const nextMoves = getValidMoves(nextBoard, nextPlayer, rule, nextUnlocked, nextModifiers);
 
       if (nextMoves.length > 0) {
         setTurn(nextPlayer);
         setPassMessage(null);
       } else {
-        const myNextMoves = getValidMoves(nextBoard, player, rule, nextUnlocked);
+        const myNextMoves = getValidMoves(nextBoard, player, rule, nextUnlocked, nextModifiers);
         if (myNextMoves.length > 0) {
           soundManager.playPass();
           const passPlayerName =
@@ -269,19 +345,120 @@ export const App: React.FC = () => {
         }
       }
     },
-    [board, lastMove, mode, rule, unlocked, bombsRemaining]
+    [
+      board,
+      lastMove,
+      mode,
+      rule,
+      unlocked,
+      bombsRemaining,
+      cellModifiers,
+      moveCount,
+      enableRoulette,
+      pendingTimeStop
+    ]
   );
+
+  // スキル選択・発動
+  const handleSelectSkill = (skill: SkillType) => {
+    if (isAiThinking || isFinished) return;
+    if (mode === 'online' && turn !== myOnlineColor) return;
+    if (mode === 'cpu' && turn !== 'black') return;
+    if (skills[turn][skill] <= 0) return;
+
+    if (skill === 'shield') {
+      setActiveSkill((prev) => (prev === 'shield' ? null : 'shield'));
+      setIsBombActive(false);
+    } else if (skill === 'colorBomb') {
+      setActiveSkill((prev) => (prev === 'colorBomb' ? null : 'colorBomb'));
+      setIsBombActive(false);
+    } else if (skill === 'timeStop') {
+      if (pendingTimeStop) return;
+      setPendingTimeStop(true);
+      setSkills((prev) => ({
+        ...prev,
+        [turn]: { ...prev[turn], timeStop: prev[turn].timeStop - 1 }
+      }));
+      setPassMessage('⚡ タイムストップ発動！この手を打った後、もう一度あなたの番になります！');
+      if (passTimerRef.current) clearTimeout(passTimerRef.current);
+      passTimerRef.current = setTimeout(() => setPassMessage(null), 3500);
+    } else if (skill === 'reverse') {
+      const { nextBoard, changedPositions } = executeBoardReverse(board, cellModifiers);
+      setBoard(nextBoard);
+      setSkills((prev) => ({
+        ...prev,
+        [turn]: { ...prev[turn], reverse: prev[turn].reverse - 1 }
+      }));
+
+      const flipSet = new Set<string>();
+      changedPositions.forEach((p) => flipSet.add(`${p.row},${p.col}`));
+      setFlippingPositions(flipSet);
+      setTimeout(() => setFlippingPositions(new Set()), 400);
+
+      soundManager.playZoneUnlock();
+      setPassMessage('🔄 全反転発動！白黒がすべて入れ替わりました！');
+      if (passTimerRef.current) clearTimeout(passTimerRef.current);
+      passTimerRef.current = setTimeout(() => setPassMessage(null), 3500);
+
+      // 手番を相手へ
+      const nextPlayer = getOpponent(turn);
+      setTurn(nextPlayer);
+    }
+  };
+
+  // 天変地異ルーレット結果適用
+  const handleSpinComplete = (event: RouletteEvent) => {
+    const res = executeRouletteEvent(board, rule, unlocked, event, cellModifiers);
+    setBoard(res.nextBoard);
+    setCellModifiers(res.nextModifiers);
+
+    const flipSet = new Set<string>();
+    res.affectedPositions.forEach((p) => flipSet.add(`${p.row},${p.col}`));
+    setFlippingPositions(flipSet);
+    setTimeout(() => setFlippingPositions(new Set()), 500);
+
+    soundManager.playZoneUnlock();
+    setRouletteAlertMessage(res.message);
+    setTimeout(() => setRouletteAlertMessage(null), 4500);
+    setIsRouletteModalOpen(false);
+  };
 
   const handleCellClick = (row: number, col: number) => {
     if (isAiThinking || isFinished) return;
     if (mode === 'online' && turn !== myOnlineColor) return;
     if (mode === 'cpu' && turn !== 'black') return;
 
+    // 🎨 カラーボム発動中
+    if (activeSkill === 'colorBomb') {
+      const { nextBoard, changedPositions } = executeColorBomb(board, row, col, turn, rule, unlocked, cellModifiers);
+      setBoard(nextBoard);
+      setSkills((prev) => ({
+        ...prev,
+        [turn]: { ...prev[turn], colorBomb: Math.max(0, prev[turn].colorBomb - 1) }
+      }));
+      setActiveSkill(null);
+
+      const flipSet = new Set<string>();
+      changedPositions.forEach((p) => flipSet.add(`${p.row},${p.col}`));
+      setFlippingPositions(flipSet);
+      setTimeout(() => setFlippingPositions(new Set()), 400);
+      soundManager.playExplosion();
+
+      // 手番交代
+      const nextPlayer = getOpponent(turn);
+      const nextMoves = getValidMoves(nextBoard, nextPlayer, rule, unlocked, cellModifiers);
+      if (nextMoves.length > 0) {
+        setTurn(nextPlayer);
+      }
+      return;
+    }
+
     const move = validMoves.find((m) => m.row === row && m.col === col);
     if (!move) return;
 
     const willUseBomb = isBombActive && bombsRemaining[turn] > 0;
-    executeMove(row, col, turn, willUseBomb, true);
+    const willUseShield = activeSkill === 'shield' && skills[turn].shield > 0;
+    executeMove(row, col, turn, willUseBomb, willUseShield, true);
   };
 
   // CPU自動着手
@@ -290,16 +467,44 @@ export const App: React.FC = () => {
       setIsAiThinking(true);
       const delay = Math.random() * 300 + 500;
       const timer = setTimeout(() => {
-        const aiMove = calculateAiMove(board, 'white', aiLevel, rule, unlocked, bombsRemaining.white);
+        const aiMove = calculateAiMove(
+          board,
+          'white',
+          aiLevel,
+          rule,
+          unlocked,
+          bombsRemaining.white,
+          cellModifiers
+        );
         if (aiMove) {
-          executeMove(aiMove.row, aiMove.col, 'white', !!aiMove.isBomb, false);
+          // 角を取る場合はシールド石を使う判断（中級以上でシールドが残っている場合）
+          const isCorner =
+            (aiMove.row === 2 || aiMove.row === 9) && (aiMove.col === 2 || aiMove.col === 9) ||
+            (aiMove.row === 1 || aiMove.row === 10) && (aiMove.col === 1 || aiMove.col === 10) ||
+            (aiMove.row === 0 || aiMove.row === 11) && (aiMove.col === 0 || aiMove.col === 11);
+          const shouldShield = enableSkills && isCorner && skills.white.shield > 0 && aiLevel !== 'easy';
+
+          executeMove(aiMove.row, aiMove.col, 'white', !!aiMove.isBomb, shouldShield, false);
         }
         setIsAiThinking(false);
       }, delay);
 
       return () => clearTimeout(timer);
     }
-  }, [board, turn, mode, aiLevel, isFinished, rule, unlocked, bombsRemaining.white, executeMove]);
+  }, [
+    board,
+    turn,
+    mode,
+    aiLevel,
+    isFinished,
+    rule,
+    unlocked,
+    bombsRemaining.white,
+    cellModifiers,
+    enableSkills,
+    skills.white.shield,
+    executeMove
+  ]);
 
   // 終局検知
   useEffect(() => {
@@ -447,44 +652,56 @@ export const App: React.FC = () => {
           </h1>
         </div>
 
-        {/* 対戦モード切替 */}
-        <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-lg">
+        <div className="flex items-center gap-1.5">
+          {/* 📖 ルール説明ボタン */}
           <button
             type="button"
-            onClick={() => handleQuickChangeMode('cpu')}
-            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-              mode === 'cpu'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
+            onClick={() => setIsRulesModalOpen(true)}
+            className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-[10px] sm:text-xs font-black flex items-center gap-1 transition-all shadow-sm cursor-pointer"
           >
-            <Bot size={11} />
-            <span>CPU</span>
+            <BookOpen size={12} />
+            <span>ルール説明</span>
           </button>
-          <button
-            type="button"
-            onClick={() => handleQuickChangeMode('local')}
-            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-              mode === 'local'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <User size={11} />
-            <span>2人</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickChangeMode('online')}
-            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-              mode === 'online'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Globe size={11} />
-            <span>オンライン</span>
-          </button>
+
+          {/* 対戦モード切替 */}
+          <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-lg">
+            <button
+              type="button"
+              onClick={() => handleQuickChangeMode('cpu')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                mode === 'cpu'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Bot size={11} />
+              <span>CPU</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickChangeMode('local')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                mode === 'local'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <User size={11} />
+              <span>2人</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickChangeMode('online')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                mode === 'online'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Globe size={11} />
+              <span>通信</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -544,6 +761,41 @@ export const App: React.FC = () => {
           </button>
         </div>
 
+        {/* 🃏 スキル & 🎲 天変地異ルーレット トグルバー */}
+        <div className="flex items-center justify-between px-1 py-1 bg-slate-900/60 rounded-lg border border-slate-800 text-[10px]">
+          <span className="text-slate-400 font-bold hidden sm:inline">拡張ギミック:</span>
+          <div className="flex gap-2 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setEnableSkills(!enableSkills);
+                setActiveSkill(null);
+              }}
+              className={`flex-1 sm:flex-initial px-2 py-1 rounded-md font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                enableSkills
+                  ? 'bg-blue-600/90 text-white shadow-[0_0_8px_rgba(59,130,246,0.5)] ring-1 ring-blue-400'
+                  : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
+              }`}
+            >
+              <Sparkles size={11} />
+              <span>🃏 特殊スキル: {enableSkills ? 'ON' : 'OFF'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEnableRoulette(!enableRoulette)}
+              className={`flex-1 sm:flex-initial px-2 py-1 rounded-md font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                enableRoulette
+                  ? 'bg-purple-600/90 text-white shadow-[0_0_8px_rgba(168,85,247,0.5)] ring-1 ring-purple-400'
+                  : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
+              }`}
+            >
+              <Dices size={11} />
+              <span>🎲 天変地異: {enableRoulette ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+        </div>
+
         {/* CPU難易度切替 */}
         {mode === 'cpu' && (
           <div className="flex items-center justify-between px-1 py-0.5 text-[10px] text-slate-400 font-bold">
@@ -588,10 +840,18 @@ export const App: React.FC = () => {
           zoneAlertMessage={zoneAlertMessage}
         />
 
+        {/* 🎲 天変地異ルーレットのアラートメッセージ */}
+        {rouletteAlertMessage && (
+          <div className="w-full max-w-[460px] my-1 p-2 bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-purple-900/90 border border-purple-400 text-purple-200 text-center font-black text-xs rounded-xl shadow-lg animate-bounce">
+            {rouletteAlertMessage}
+          </div>
+        )}
+
         <Board
           board={board}
           rule={rule}
           unlocked={unlocked}
+          modifiers={cellModifiers}
           validMoves={validMoves}
           lastMove={lastMove}
           isLastMoveBomb={isLastMoveBomb}
@@ -607,6 +867,20 @@ export const App: React.FC = () => {
             (mode === 'cpu' && turn !== 'black')
           }
         />
+
+        {/* 🃏 特殊能力スキルバー */}
+        {enableSkills && (
+          <div className="w-full flex justify-center my-1 px-1">
+            <SkillBar
+              skills={skills[turn]}
+              activeSkill={activeSkill}
+              onSelectSkill={handleSelectSkill}
+              turn={turn}
+              isMyTurn={mode !== 'cpu' || turn === 'black'}
+              disabled={isAiThinking || isFinished}
+            />
+          </div>
+        )}
 
         <GameControls
           mode={mode}
@@ -631,6 +905,20 @@ export const App: React.FC = () => {
       </footer>
 
       {/* モーダル群 */}
+      <RulesModal
+        isOpen={isRulesModalOpen}
+        onClose={() => setIsRulesModalOpen(false)}
+        currentRule={rule}
+        enableSkills={enableSkills}
+        enableRoulette={enableRoulette}
+        onStartGame={() => handleResetGame()}
+      />
+
+      <RouletteModal
+        isOpen={isRouletteModalOpen}
+        onSpinComplete={handleSpinComplete}
+      />
+
       <ModeSelector
         isOpen={isModeModalOpen}
         currentMode={mode}

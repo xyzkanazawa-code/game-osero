@@ -13,6 +13,8 @@ interface CellProps {
   isValidMove: boolean;
   flipCount: number;
   isNewlyUnlocked?: boolean;
+  isShield?: boolean;
+  isGold?: boolean;
   onClick: () => void;
   disabled: boolean;
 }
@@ -29,6 +31,8 @@ export const Cell: React.FC<CellProps> = ({
   isValidMove,
   flipCount,
   isNewlyUnlocked,
+  isShield,
+  isGold,
   onClick,
   disabled
 }) => {
@@ -85,9 +89,17 @@ export const Cell: React.FC<CellProps> = ({
           >
             {value === 'black' ? (
               // 黒石
-              <div className="w-full h-full rounded-full bg-gradient-to-br from-slate-700 via-slate-900 to-black flex items-center justify-center border border-slate-950 relative overflow-hidden shadow-inner">
+              <div
+                className={`w-full h-full rounded-full bg-gradient-to-br from-slate-700 via-slate-900 to-black flex items-center justify-center border border-slate-950 relative overflow-hidden shadow-inner ${
+                  isShield ? 'ring-2 ring-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]' : ''
+                } ${isGold ? 'ring-2 ring-yellow-300 bg-gradient-to-br from-yellow-700 via-amber-900 to-black' : ''}`}
+              >
                 <div className="absolute top-[12%] left-[18%] w-[35%] h-[35%] bg-white/15 rounded-full blur-[1px]" />
-                {isLastBomb ? (
+                {isShield ? (
+                  <span className="text-[10px] sm:text-xs pointer-events-none">🛡️</span>
+                ) : isGold ? (
+                  <span className="text-[10px] sm:text-xs pointer-events-none">💰</span>
+                ) : isLastBomb ? (
                   <span className="text-[12px] sm:text-sm animate-bounce pointer-events-none">💣</span>
                 ) : isLastMove ? (
                   <span className="w-2.5 h-2.5 bg-amber-400 rounded-full ring-2 ring-amber-300/60 shadow-lg animate-pulse" />
@@ -95,9 +107,17 @@ export const Cell: React.FC<CellProps> = ({
               </div>
             ) : (
               // 白石
-              <div className="w-full h-full rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-300 flex items-center justify-center border border-slate-300 relative overflow-hidden shadow-inner">
+              <div
+                className={`w-full h-full rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-300 flex items-center justify-center border border-slate-300 relative overflow-hidden shadow-inner ${
+                  isShield ? 'ring-2 ring-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]' : ''
+                } ${isGold ? 'ring-2 ring-yellow-400 bg-gradient-to-br from-yellow-100 via-amber-100 to-yellow-300' : ''}`}
+              >
                 <div className="absolute top-[12%] left-[18%] w-[35%] h-[35%] bg-white/80 rounded-full blur-[1px]" />
-                {isLastBomb ? (
+                {isShield ? (
+                  <span className="text-[10px] sm:text-xs pointer-events-none">🛡️</span>
+                ) : isGold ? (
+                  <span className="text-[10px] sm:text-xs pointer-events-none">💰</span>
+                ) : isLastBomb ? (
                   <span className="text-[12px] sm:text-sm animate-bounce pointer-events-none">💣</span>
                 ) : isLastMove ? (
                   <span className="w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-rose-400/60 shadow-lg animate-pulse" />
