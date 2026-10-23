@@ -30,6 +30,7 @@ import { GameControls } from './components/GameControls';
 import { ModeSelector } from './components/ModeSelector';
 import { OnlineModal } from './components/OnlineModal';
 import { GameOverModal } from './components/GameOverModal';
+import { Bot, User, Globe } from 'lucide-react';
 
 interface HistoryItem {
   board: CellValue[][];
@@ -54,7 +55,7 @@ export const App: React.FC = () => {
   const [newlyUnlockedZone, setNewlyUnlockedZone] = useState<keyof UnlockedZones | null>(null);
   const [zoneAlertMessage, setZoneAlertMessage] = useState<string | null>(null);
 
-  // 💣 爆弾石関連ステート（各プレイヤー1回使用可能）
+  // 💣 爆弾石関連ステート
   const [bombsRemaining, setBombsRemaining] = useState<BombsRemaining>({ black: 1, white: 1 });
   const [isBombActive, setIsBombActive] = useState(false);
   const [isBombShaking, setIsBombShaking] = useState(false);
@@ -178,7 +179,6 @@ export const App: React.FC = () => {
         if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
         shakeTimerRef.current = setTimeout(() => setIsBombShaking(false), 500);
 
-        // 爆弾消費
         setBombsRemaining((prev) => ({
           ...prev,
           [player]: Math.max(0, prev[player] - 1)
@@ -274,7 +274,6 @@ export const App: React.FC = () => {
     const move = validMoves.find((m) => m.row === row && m.col === col);
     if (!move) return;
 
-    // 爆弾石装填中なら爆弾として着手
     const willUseBomb = isBombActive && bombsRemaining[turn] > 0;
     executeMove(row, col, turn, willUseBomb, true);
   };
@@ -307,7 +306,7 @@ export const App: React.FC = () => {
     }
   }, [isFinished]);
 
-  // 待った（1手戻す）
+  // 待った
   const handleUndo = () => {
     if (history.length === 0 || isAiThinking) return;
 
@@ -362,7 +361,34 @@ export const App: React.FC = () => {
     }
   };
 
-  // モード選択
+  // 🌟 メイン画面上のクイック・ルール切り替え（通常・盤面拡張・爆弾石・全部盛り）
+  const handleQuickChangeRule = (newRule: RuleType) => {
+    if (newRule === rule) return;
+    setRule(newRule);
+    handleResetGame(newRule);
+  };
+
+  // 🌟 メイン画面上のクイック・対戦相手切り替え
+  const handleQuickChangeMode = (newMode: GameMode) => {
+    if (newMode === 'online') {
+      setIsOnlineModalOpen(true);
+      return;
+    }
+    setMode(newMode);
+    p2pManager.cleanup();
+    handleResetGame(rule);
+  };
+
+  // 🌟 メイン画面上のクイック・AI難易度切り替え
+  const handleQuickChangeAiLevel = (newLevel: AiLevel) => {
+    setAiLevel(newLevel);
+    if (mode !== 'cpu') {
+      setMode('cpu');
+      handleResetGame(rule);
+    }
+  };
+
+  // モード選択モーダルからの確定
   const handleSelectCpu = (level: AiLevel, selectedRule: RuleType) => {
     setMode('cpu');
     setAiLevel(level);
@@ -411,38 +437,145 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-2 sm:p-4 max-w-[500px] mx-auto w-full selection:bg-emerald-500 selection:text-white">
-      {/* 上部タイトル */}
-      <header className="w-full flex items-center justify-between py-1 px-1">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
-            <span className="w-3.5 h-3.5 rounded-full bg-slate-900 border border-white/20 inline-block shadow-sm" />
+      {/* 上部ヘッダー（タイトル ＆ 対戦相手切替） */}
+      <header className="w-full flex items-center justify-between py-1 px-0.5">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-md bg-emerald-700 flex items-center justify-center shadow-md border border-emerald-500/40">
+            <span className="w-3 h-3 rounded-full bg-slate-900 border border-white/20 inline-block shadow-sm" />
           </div>
-          <div>
-            <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
-              <span>対戦オセロ</span>
-              <span className="text-[9px] text-amber-400 font-mono bg-amber-950/80 border border-amber-800/80 px-1 py-0.2 rounded font-bold">
-                {rule === 'chaos'
-                  ? '拡張＋爆弾'
-                  : rule === 'bomb'
-                  ? '爆弾石'
-                  : rule === 'fortress'
-                  ? '盤面拡張'
-                  : '通常 8×8'}
-              </span>
-            </h1>
-          </div>
+          <h1 className="text-sm font-black tracking-tight text-white flex items-center gap-1">
+            <span>対戦オセロ</span>
+          </h1>
         </div>
 
-        <div className="text-[10px] text-slate-400 font-bold bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded-full">
-          {mode === 'online' ? (
-            <span className="text-amber-400">オンライン対戦</span>
-          ) : mode === 'cpu' ? (
-            <span className="text-emerald-400">CPU対戦中</span>
-          ) : (
-            <span className="text-sky-400">2人対面対戦</span>
-          )}
+        {/* 対戦モードクイック切替（CPU / 2人対面 / オンライン） */}
+        <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-lg">
+          <button
+            type="button"
+            onClick={() => handleQuickChangeMode('cpu')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+              mode === 'cpu'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Bot size={11} />
+            <span>CPU</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickChangeMode('local')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+              mode === 'local'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <User size={11} />
+            <span>2人</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickChangeMode('online')}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+              mode === 'online'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Globe size={11} />
+            <span>オンライン</span>
+          </button>
         </div>
       </header>
+
+      {/* 🌟 【誰でも見える！】4大ルール・常時クイック切替タブバー */}
+      <div className="w-full flex flex-col gap-1 my-1">
+        <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900/90 rounded-xl border border-slate-800 shadow-md">
+          {/* 1. 通常 8x8 */}
+          <button
+            type="button"
+            onClick={() => handleQuickChangeRule('classic')}
+            className={`py-1.5 px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+              rule === 'classic'
+                ? 'bg-emerald-600 text-white font-black shadow-md ring-1 ring-emerald-400'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-[11px] sm:text-xs">通常</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">8×8</span>
+          </button>
+
+          {/* 2. 🏰 盤面拡張 (四隅7マス) */}
+          <button
+            type="button"
+            onClick={() => handleQuickChangeRule('fortress')}
+            className={`py-1.5 px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+              rule === 'fortress'
+                ? 'bg-amber-600 text-white font-black shadow-[0_0_10px_rgba(245,158,11,0.4)] ring-1 ring-amber-300'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-[11px] sm:text-xs">🏰 盤面拡張</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">四隅7マス</span>
+          </button>
+
+          {/* 3. 💣 爆弾石 */}
+          <button
+            type="button"
+            onClick={() => handleQuickChangeRule('bomb')}
+            className={`py-1.5 px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+              rule === 'bomb'
+                ? 'bg-red-600 text-white font-black shadow-[0_0_10px_rgba(239,68,68,0.4)] ring-1 ring-red-300'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-[11px] sm:text-xs">💣 爆弾石</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">3×3大爆破</span>
+          </button>
+
+          {/* 4. 🔥 全部盛り */}
+          <button
+            type="button"
+            onClick={() => handleQuickChangeRule('chaos')}
+            className={`py-1.5 px-1 rounded-lg text-center transition-all cursor-pointer flex flex-col items-center justify-center ${
+              rule === 'chaos'
+                ? 'bg-purple-600 text-white font-black shadow-[0_0_10px_rgba(168,85,247,0.4)] ring-1 ring-purple-300'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <span className="text-[11px] sm:text-xs">🔥 全部盛り</span>
+            <span className="text-[8px] sm:text-[9px] opacity-80">拡張＋爆弾</span>
+          </button>
+        </div>
+
+        {/* CPU対戦時：初級・中級・上級クイック切替 */}
+        {mode === 'cpu' && (
+          <div className="flex items-center justify-between px-1 py-0.5 text-[10px] text-slate-400 font-bold">
+            <span>CPU難易度:</span>
+            <div className="flex gap-1">
+              {(['easy', 'medium', 'hard'] as AiLevel[]).map((lvl) => {
+                const label = lvl === 'easy' ? '初級' : lvl === 'medium' ? '中級' : '上級';
+                const isSelected = aiLevel === lvl;
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={() => handleQuickChangeAiLevel(lvl)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-extrabold cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-slate-200 text-slate-950 shadow-sm'
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* メインゲーム領域 */}
       <main className="w-full flex-1 flex flex-col items-center justify-center py-0.5">
@@ -502,7 +635,7 @@ export const App: React.FC = () => {
         対戦オセロ (Reversi) © 2026 • マサ専用エディション
       </footer>
 
-      {/* モード選択モーダル */}
+      {/* モーダル群 */}
       <ModeSelector
         isOpen={isModeModalOpen}
         currentMode={mode}
