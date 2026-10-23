@@ -134,6 +134,12 @@
   animation: bombPulse 1.2s ease-in-out infinite;
 }
 
+/* 10x10 四隅7マス拡張オセログリッド */
+.grid-cols-10 {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
 /* 14x14 四隅拡張オセログリッド */
 .grid-cols-14 {
   display: grid;

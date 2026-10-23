@@ -8,8 +8,9 @@ import {
   UnlockedZones
 } from '../types/othello';
 
-export const GRID_SIZE = 14;
-export const OFFSET = 3;
+// グリッドサイズ: 中央8x8 + 周囲1周（各角7マス）を内包する 10x10
+export const GRID_SIZE = 10;
+export const OFFSET = 1; // 中央8x8は行1..8, 列1..8
 
 // 8方向ベクトル [dRow, dCol]
 export const DIRECTIONS: [number, number][] = [
@@ -18,12 +19,36 @@ export const DIRECTIONS: [number, number][] = [
   [1, -1],  [1, 0],  [1, 1]
 ];
 
-// 元の8x8の4隅の座標
+// 元の8x8の4隅の座標（10x10座標系内）
 export const ORIGINAL_CORNERS = {
-  topLeft: { row: 3, col: 3 },
-  topRight: { row: 3, col: 10 },
-  bottomLeft: { row: 10, col: 3 },
-  bottomRight: { row: 10, col: 10 }
+  topLeft: { row: 1, col: 1 },
+  topRight: { row: 1, col: 8 },
+  bottomLeft: { row: 8, col: 1 },
+  bottomRight: { row: 8, col: 8 }
+};
+
+// 各角7マス（横3 + 縦3 + 斜め角1）の座標リスト
+export const FORTRESS_ZONE_CELLS = {
+  topLeft: [
+    { r: 0, c: 0 }, // 斜め角
+    { r: 0, c: 1 }, { r: 0, c: 2 }, { r: 0, c: 3 }, // 上横3マス
+    { r: 1, c: 0 }, { r: 2, c: 0 }, { r: 3, c: 0 }  // 左縦3マス
+  ],
+  topRight: [
+    { r: 0, c: 9 }, // 斜め角
+    { r: 0, c: 6 }, { r: 0, c: 7 }, { r: 0, c: 8 }, // 上横3マス
+    { r: 1, c: 9 }, { r: 2, c: 9 }, { r: 3, c: 9 }  // 右縦3マス
+  ],
+  bottomLeft: [
+    { r: 9, c: 0 }, // 斜め角
+    { r: 9, c: 1 }, { r: 9, c: 2 }, { r: 9, c: 3 }, // 下横3マス
+    { r: 6, c: 0 }, { r: 7, c: 0 }, { r: 8, c: 0 }  // 左縦3マス
+  ],
+  bottomRight: [
+    { r: 9, c: 9 }, // 斜め角
+    { r: 9, c: 6 }, { r: 9, c: 7 }, { r: 9, c: 8 }, // 下横3マス
+    { r: 6, c: 9 }, { r: 7, c: 9 }, { r: 8, c: 9 }  // 右縦3マス
+  ]
 };
 
 /**
@@ -34,11 +59,11 @@ export const createInitialBoard = (rule: RuleType = 'classic'): CellValue[][] =>
     .fill(null)
     .map(() => Array(GRID_SIZE).fill(null));
 
-  // 中央4石
-  board[6][6] = 'white';
-  board[6][7] = 'black';
-  board[7][6] = 'black';
-  board[7][7] = 'white';
+  // 中央4石（行4,5 / 列4,5）
+  board[4][4] = 'white';
+  board[4][5] = 'black';
+  board[5][4] = 'black';
+  board[5][5] = 'white';
 
   return board;
 };
@@ -66,19 +91,19 @@ export const isCellActive = (
 ): boolean => {
   if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return false;
 
-  // 1. 中央8x8（row 3..10, col 3..10）は常に有効
-  if (row >= 3 && row <= 10 && col >= 3 && col <= 10) {
+  // 1. 中央8x8（row 1..8, col 1..8）は常に有効
+  if (row >= 1 && row <= 8 && col >= 1 && col <= 8) {
     return true;
   }
 
   // classic や bomb ルール（通常サイズ）の場合は中央8x8のみ
   if (rule === 'classic' || rule === 'bomb') return false;
 
-  // 2. 解放された四隅3x3ゾーン（fortress または chaos）
-  if (unlocked.topLeft && row <= 2 && col <= 2) return true;
-  if (unlocked.topRight && row <= 2 && col >= 11) return true;
-  if (unlocked.bottomLeft && row >= 11 && col <= 2) return true;
-  if (unlocked.bottomRight && row >= 11 && col >= 11) return true;
+  // 2. 解放された四隅7マス（fortress または chaos）
+  if (unlocked.topLeft && FORTRESS_ZONE_CELLS.topLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.topRight && FORTRESS_ZONE_CELLS.topRight.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomLeft && FORTRESS_ZONE_CELLS.bottomLeft.some((p) => p.r === row && p.c === col)) return true;
+  if (unlocked.bottomRight && FORTRESS_ZONE_CELLS.bottomRight.some((p) => p.r === row && p.c === col)) return true;
 
   return false;
 };
@@ -213,7 +238,7 @@ export const checkNewlyUnlockedZone = (
 };
 
 /**
- * 石を配置して盤面を更新（通常石または爆弾石）
+ * 石を配置して盤面を更新
  */
 export const applyMove = (
   board: CellValue[][],
@@ -238,12 +263,10 @@ export const applyMove = (
   const nextBoard: CellValue[][] = board.map((r) => [...r]);
   nextBoard[row][col] = player;
 
-  // 通常反転
   for (const pos of standardFlipped) {
     nextBoard[pos.row][pos.col] = player;
   }
 
-  // 💣 爆弾石の場合: 周囲3x3の相手石もすべて爆破自色化！
   let exploded: Position[] = [];
   if (isBomb) {
     exploded = getBombExplodedPositions(board, row, col, player, rule, unlocked);
@@ -252,14 +275,12 @@ export const applyMove = (
     }
   }
 
-  // 統合反転リスト（重複除去）
   const allFlippedMap = new Map<string, Position>();
   for (const p of [...standardFlipped, ...exploded]) {
     allFlippedMap.set(`${p.row},${p.col}`, p);
   }
   const flipped = Array.from(allFlippedMap.values());
 
-  // 四隅拡張判定
   const newZone = checkNewlyUnlockedZone(row, col, rule, unlocked);
   const nextUnlocked = { ...unlocked };
   if (newZone) {

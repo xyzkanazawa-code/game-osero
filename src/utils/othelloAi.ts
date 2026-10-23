@@ -1,6 +1,5 @@
 import {
   AiLevel,
-  BombsRemaining,
   CellValue,
   Move,
   Player,
@@ -9,18 +8,19 @@ import {
 } from '../types/othello';
 import {
   applyMove,
-  countScore,
   getBombExplodedPositions,
   getOpponent,
   getValidMoves,
   GRID_SIZE,
   isCellActive,
-  isGameOver
+  ORIGINAL_CORNERS
 } from './othelloLogic';
 
+// 10x10 重みテーブル
 const generateWeightTable = (): number[][] => {
   const table = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0));
 
+  // 中央8x8（行1..8, 列1..8）の標準オセロ重み
   const base8: number[][] = [
     [ 100, -25,  10,   5,   5,  10, -25,  100],
     [-25,  -50,  -2,  -2,  -2,  -2, -50,  -25],
@@ -34,25 +34,26 @@ const generateWeightTable = (): number[][] => {
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      table[r + 3][c + 3] = base8[r][c];
+      table[r + 1][c + 1] = base8[r][c];
     }
   }
 
-  table[0][0] = 150; table[0][1] = -30; table[0][2] = 20;
-  table[1][0] = -30; table[1][1] = -60; table[1][2] = -10;
-  table[2][0] = 20;  table[2][1] = -10; table[2][2] = 10;
+  // 四隅外周7マス（最先端の角は150点）
+  // 左上
+  table[0][0] = 150; table[0][1] = 20; table[0][2] = 15; table[0][3] = 10;
+  table[1][0] = 20;  table[2][0] = 15; table[3][0] = 10;
 
-  table[0][13] = 150; table[0][12] = -30; table[0][11] = 20;
-  table[1][13] = -30; table[1][12] = -60; table[1][11] = -10;
-  table[2][13] = 20;  table[2][12] = -10; table[2][11] = 10;
+  // 右上
+  table[0][9] = 150; table[0][8] = 20; table[0][7] = 15; table[0][6] = 10;
+  table[1][9] = 20;  table[2][9] = 15; table[3][9] = 10;
 
-  table[13][0] = 150; table[13][1] = -30; table[13][2] = 20;
-  table[12][0] = -30; table[12][1] = -60; table[12][2] = -10;
-  table[11][0] = 20;  table[11][1] = -10; table[11][2] = 10;
+  // 左下
+  table[9][0] = 150; table[9][1] = 20; table[9][2] = 15; table[9][3] = 10;
+  table[8][0] = 20;  table[7][0] = 15; table[6][0] = 10;
 
-  table[13][13] = 150; table[13][12] = -30; table[13][11] = 20;
-  table[12][13] = -30; table[12][12] = -60; table[12][11] = -10;
-  table[11][13] = 20;  table[11][12] = -10; table[11][11] = 10;
+  // 右下
+  table[9][9] = 150; table[9][8] = 20; table[9][7] = 15; table[9][6] = 10;
+  table[8][9] = 20;  table[7][9] = 15; table[6][9] = 10;
 
   return table;
 };
@@ -95,9 +96,6 @@ const evaluateBoard = (
   return positionalScore + mobilityScore * 8;
 };
 
-/**
- * AI着手決定（爆弾使用判断含む）
- */
 export const calculateAiMove = (
   board: CellValue[][],
   player: Player,
@@ -109,7 +107,6 @@ export const calculateAiMove = (
   const validMoves = getValidMoves(board, player, rule, unlocked);
   if (validMoves.length === 0) return null;
 
-  // 1. 通常の最適手を算出
   let chosenMove: Move;
 
   if (level === 'easy') {
@@ -120,13 +117,13 @@ export const calculateAiMove = (
       chosenMove = sorted[0];
     }
   } else {
-    // 中級・上級
+    // 角マス優先
     const highPriorityCorners = [
-      { r: 3, c: 3 }, { r: 3, c: 10 }, { r: 10, c: 3 }, { r: 10, c: 10 },
-      { r: 0, c: 0 }, { r: 0, c: 13 }, { r: 13, c: 0 }, { r: 13, c: 13 }
+      { r: 1, c: 1 }, { r: 1, c: 8 }, { r: 8, c: 1 }, { r: 8, c: 8 },
+      { r: 0, c: 0 }, { r: 0, c: 9 }, { r: 9, c: 0 }, { r: 9, c: 9 }
     ];
 
-    let cornerMove = validMoves.find((m) =>
+    const cornerMove = validMoves.find((m) =>
       highPriorityCorners.some((c) => c.r === m.row && c.c === m.col)
     );
 
@@ -152,9 +149,8 @@ export const calculateAiMove = (
     }
   }
 
-  // 2. 💣 爆弾石を使用するかどうかの判断（bomb または chaos ルール時）
+  // 💣 爆弾石を使用するかどうかの判断
   if ((rule === 'bomb' || rule === 'chaos') && bombsAvailable > 0) {
-    // 全合法手の中で、爆弾を使うと相手の石を最も多く爆破（3個以上）できるマスを探す
     let maxExplosion = 0;
     let bestBombMove: Move | null = null;
 
@@ -166,7 +162,6 @@ export const calculateAiMove = (
       }
     }
 
-    // 周囲に3個以上相手の石を巻き込めるなら、ドカンと爆弾を使用！
     if (bestBombMove && maxExplosion >= 3) {
       return bestBombMove;
     }

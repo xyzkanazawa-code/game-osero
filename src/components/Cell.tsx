@@ -45,8 +45,8 @@ export const Cell: React.FC<CellProps> = ({
     discAnimationClass = 'disc-place-pop';
   }
 
-  // 元の8x8の4隅（(3,3), (3,10), (10,3), (10,10)）は特別な金枠風ハイライト
-  const isOriginalCorner = (row === 3 || row === 10) && (col === 3 || col === 10);
+  // 元の8x8の4隅（(1,1), (1,8), (8,1), (8,8)）は特別な金枠風ハイライト
+  const isOriginalCorner = (row === 1 || row === 8) && (col === 1 || col === 8);
 
   return (
     <button

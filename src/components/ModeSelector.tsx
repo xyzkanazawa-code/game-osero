@@ -86,7 +86,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
                 {selectedRule === 'fortress' && <Check size={14} className="text-amber-400" />}
               </div>
               <span className="text-[10px] text-slate-300 leading-tight">
-                角を取ると外側3×3が突如出現！
+                角を取ると外側7マス(L字)が突如出現！
               </span>
             </button>
 

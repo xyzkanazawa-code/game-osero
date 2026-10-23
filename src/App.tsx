@@ -199,7 +199,7 @@ export const App: React.FC = () => {
           bottomLeft: '左下',
           bottomRight: '右下'
         };
-        setZoneAlertMessage(`⚠️ 警報！${zoneNames[newZoneUnlocked]}の3×3新エリアが解放されました！`);
+        setZoneAlertMessage(`⚠️ 警報！${zoneNames[newZoneUnlocked]}の7マス新エリアが解放されました！`);
         if (zoneTimerRef.current) clearTimeout(zoneTimerRef.current);
         zoneTimerRef.current = setTimeout(() => {
           setZoneAlertMessage(null);
