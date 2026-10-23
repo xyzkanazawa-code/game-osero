@@ -1,6 +1,6 @@
 import React from 'react';
-import { AiLevel, GameMode, Player, RuleType, Score, UnlockedZones } from '../types/othello';
-import { Bot, User, Globe, AlertCircle, ShieldAlert } from 'lucide-react';
+import { AiLevel, BombsRemaining, GameMode, Player, RuleType, Score, UnlockedZones } from '../types/othello';
+import { Bot, User, Globe, AlertCircle, ShieldAlert, Bomb } from 'lucide-react';
 
 interface GameHeaderProps {
   score: Score;
@@ -8,6 +8,7 @@ interface GameHeaderProps {
   mode: GameMode;
   rule: RuleType;
   unlocked: UnlockedZones;
+  bombsRemaining: BombsRemaining;
   aiLevel: AiLevel;
   myColor?: Player;
   isAiThinking?: boolean;
@@ -21,6 +22,7 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
   mode,
   rule,
   unlocked,
+  bombsRemaining,
   aiLevel,
   myColor = 'black',
   isAiThinking = false,
@@ -50,6 +52,9 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
     return color === 'black' ? 'プレイヤー 1' : 'プレイヤー 2';
   };
 
+  const hasBomb = rule === 'bomb' || rule === 'chaos';
+  const hasFortress = rule === 'fortress' || rule === 'chaos';
+
   const unlockedCount = [
     unlocked.topLeft,
     unlocked.topRight,
@@ -62,7 +67,6 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
       {/* モード & ルール表示バッジ */}
       <div className="flex items-center justify-between mb-1.5 px-0.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {/* 対戦モード */}
           <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-800/60 px-2 py-0.5 rounded-full shadow-sm">
             {mode === 'cpu' && <Bot size={13} />}
             {mode === 'local' && <User size={13} />}
@@ -73,16 +77,24 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
           {/* ルールバッジ */}
           <div
             className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full shadow-sm border ${
-              rule === 'fortress'
+              rule === 'chaos'
+                ? 'bg-purple-950/80 text-purple-300 border-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.3)]'
+                : rule === 'bomb'
+                ? 'bg-red-950/80 text-red-300 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.3)]'
+                : rule === 'fortress'
                 ? 'bg-amber-950/80 text-amber-300 border-amber-600/80 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
                 : 'bg-slate-900 text-slate-300 border-slate-700'
             }`}
           >
-            {rule === 'fortress' ? (
+            {rule === 'chaos' ? (
+              <span>🔥 拡張＋爆弾石</span>
+            ) : rule === 'bomb' ? (
+              <span>💣 爆弾石モード</span>
+            ) : rule === 'fortress' ? (
               <>
-                <span>🏰 四隅拡張モード</span>
+                <span>🏰 盤面拡張</span>
                 <span className="text-[9px] bg-amber-400 text-slate-950 px-1 rounded font-extrabold">
-                  {unlockedCount}/4 解放
+                  {unlockedCount}/4
                 </span>
               </>
             ) : (
@@ -91,7 +103,6 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
           </div>
         </div>
 
-        {/* AI思考中インジケータ */}
         {isAiThinking && (
           <div className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-950/60 border border-amber-700/60 px-2 py-0.5 rounded-full animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
@@ -114,10 +125,17 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
             <div className="w-2 h-2 rounded-full bg-white/10" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-bold text-slate-400 truncate flex items-center gap-1">
-              <span>{getPlayerLabel('black')}</span>
-              {turn === 'black' && (
-                <span className="bg-amber-400/20 text-amber-300 text-[8px] px-1 py-0.2 rounded font-black">手番</span>
+            <div className="text-[10px] font-bold text-slate-400 truncate flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <span>{getPlayerLabel('black')}</span>
+                {turn === 'black' && (
+                  <span className="bg-amber-400/20 text-amber-300 text-[8px] px-1 py-0.2 rounded font-black">手番</span>
+                )}
+              </span>
+              {hasBomb && (
+                <span className="text-[10px] text-amber-400 font-extrabold">
+                  💣×{bombsRemaining.black}
+                </span>
               )}
             </div>
             <div className="text-xl font-extrabold text-white font-mono leading-tight">
@@ -138,10 +156,17 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
             <div className="w-2 h-2 rounded-full bg-white/60" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-bold text-slate-400 truncate flex items-center gap-1">
-              <span>{getPlayerLabel('white')}</span>
-              {turn === 'white' && (
-                <span className="bg-amber-400/20 text-amber-300 text-[8px] px-1 py-0.2 rounded font-black">手番</span>
+            <div className="text-[10px] font-bold text-slate-400 truncate flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <span>{getPlayerLabel('white')}</span>
+                {turn === 'white' && (
+                  <span className="bg-amber-400/20 text-amber-300 text-[8px] px-1 py-0.2 rounded font-black">手番</span>
+                )}
+              </span>
+              {hasBomb && (
+                <span className="text-[10px] text-amber-400 font-extrabold">
+                  💣×{bombsRemaining.white}
+                </span>
               )}
             </div>
             <div className="text-xl font-extrabold text-white font-mono leading-tight">
@@ -163,7 +188,7 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
         />
       </div>
 
-      {/* 🏰 新エリア出現アラートバナー */}
+      {/* 警告・通知バナー */}
       {zoneAlertMessage && (
         <div className="mt-1.5 flex items-center justify-center gap-2 py-1.5 px-2 rounded-lg bg-amber-950/90 border border-amber-500 text-amber-200 text-xs font-black shadow-lg animate-bounce">
           <ShieldAlert size={16} className="text-amber-400" />
@@ -171,7 +196,6 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
         </div>
       )}
 
-      {/* パス発生アラートバナー */}
       {passMessage && (
         <div className="mt-1.5 flex items-center justify-center gap-2 py-1 px-2 rounded-lg bg-rose-950/80 border border-rose-700 text-rose-200 text-[11px] font-bold shadow-md">
           <AlertCircle size={14} />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AiLevel,
+  BombsRemaining,
   CellValue,
   GameMode,
   Move,
@@ -33,12 +34,14 @@ import { GameOverModal } from './components/GameOverModal';
 interface HistoryItem {
   board: CellValue[][];
   unlocked: UnlockedZones;
+  bombsRemaining: BombsRemaining;
   turn: Player;
   lastMove: Position | null;
+  isLastMoveBomb: boolean;
 }
 
 export const App: React.FC = () => {
-  // ルール（デフォルトは四隅要塞拡張オセロ）
+  // ルール（デフォルトは盤面拡張）
   const [rule, setRule] = useState<RuleType>('fortress');
   const [unlocked, setUnlocked] = useState<UnlockedZones>(createInitialUnlockedZones('fortress'));
   const [board, setBoard] = useState<CellValue[][]>(createInitialBoard('fortress'));
@@ -46,9 +49,16 @@ export const App: React.FC = () => {
   const [mode, setMode] = useState<GameMode>('cpu');
   const [aiLevel, setAiLevel] = useState<AiLevel>('medium');
   const [lastMove, setLastMove] = useState<Position | null>(null);
+  const [isLastMoveBomb, setIsLastMoveBomb] = useState(false);
   const [flippingPositions, setFlippingPositions] = useState<Set<string>>(new Set());
   const [newlyUnlockedZone, setNewlyUnlockedZone] = useState<keyof UnlockedZones | null>(null);
   const [zoneAlertMessage, setZoneAlertMessage] = useState<string | null>(null);
+
+  // 💣 爆弾石関連ステート（各プレイヤー1回使用可能）
+  const [bombsRemaining, setBombsRemaining] = useState<BombsRemaining>({ black: 1, white: 1 });
+  const [isBombActive, setIsBombActive] = useState(false);
+  const [isBombShaking, setIsBombShaking] = useState(false);
+
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [passMessage, setPassMessage] = useState<string | null>(null);
@@ -73,14 +83,19 @@ export const App: React.FC = () => {
 
   const passTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ゲームリセット
   const handleResetGame = useCallback((targetRule?: RuleType) => {
     const r = targetRule || rule;
     setBoard(createInitialBoard(r));
     setUnlocked(createInitialUnlockedZones(r));
+    setBombsRemaining({ black: 1, white: 1 });
+    setIsBombActive(false);
+    setIsBombShaking(false);
     setTurn('black');
     setLastMove(null);
+    setIsLastMoveBomb(false);
     setFlippingPositions(new Set());
     setNewlyUnlockedZone(null);
     setZoneAlertMessage(null);
@@ -109,7 +124,7 @@ export const App: React.FC = () => {
             handleResetGame(msg.rule);
           }
         } else if (msg.type === 'move') {
-          executeMove(msg.move.row, msg.move.col, msg.move.player, false);
+          executeMove(msg.move.row, msg.move.col, msg.move.player, !!msg.move.isBomb, false);
         } else if (msg.type === 'restart') {
           handleResetGame();
         } else if (msg.type === 'resign') {
@@ -145,21 +160,36 @@ export const App: React.FC = () => {
 
   // 石を打つ処理
   const executeMove = useCallback(
-    (row: number, col: number, player: Player, sendToPeer: boolean = true) => {
-      const { nextBoard, flipped, nextUnlocked, newZoneUnlocked } = applyMove(
+    (row: number, col: number, player: Player, useBomb: boolean = false, sendToPeer: boolean = true) => {
+      const { nextBoard, flipped, exploded, nextUnlocked, newZoneUnlocked } = applyMove(
         board,
         row,
         col,
         player,
         rule,
-        unlocked
+        unlocked,
+        useBomb
       );
 
-      // 打石音と反転音
-      soundManager.playPlaceDisc();
-      soundManager.playFlipDiscs(flipped.length);
+      // 💣 爆弾石の場合のサウンド & 画面シェイク
+      if (useBomb) {
+        soundManager.playExplosion();
+        setIsBombShaking(true);
+        if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+        shakeTimerRef.current = setTimeout(() => setIsBombShaking(false), 500);
 
-      // 🏰 四隅エリアが新しく出現した場合！
+        // 爆弾消費
+        setBombsRemaining((prev) => ({
+          ...prev,
+          [player]: Math.max(0, prev[player] - 1)
+        }));
+        setIsBombActive(false);
+      } else {
+        soundManager.playPlaceDisc();
+        soundManager.playFlipDiscs(flipped.length);
+      }
+
+      // 🏰 四隅エリア出現時
       if (newZoneUnlocked) {
         soundManager.playZoneUnlock();
         setNewlyUnlockedZone(newZoneUnlocked);
@@ -184,17 +214,21 @@ export const App: React.FC = () => {
       setTimeout(() => setFlippingPositions(new Set()), 400);
 
       // 履歴保存
-      setHistory((prev) => [...prev, { board, unlocked, turn: player, lastMove }]);
+      setHistory((prev) => [
+        ...prev,
+        { board, unlocked, bombsRemaining, turn: player, lastMove, isLastMoveBomb: useBomb }
+      ]);
 
       setBoard(nextBoard);
       setUnlocked(nextUnlocked);
       setLastMove({ row, col });
+      setIsLastMoveBomb(useBomb);
 
       // オンライン対戦時は相手に着手情報を送信
       if (mode === 'online' && sendToPeer) {
         p2pManager.sendMessage({
           type: 'move',
-          move: { row, col, player }
+          move: { row, col, player, isBomb: useBomb }
         });
       }
 
@@ -206,7 +240,6 @@ export const App: React.FC = () => {
         setTurn(nextPlayer);
         setPassMessage(null);
       } else {
-        // 次のプレイヤーに合法手がない（パス発生）
         const myNextMoves = getValidMoves(nextBoard, player, rule, nextUnlocked);
         if (myNextMoves.length > 0) {
           soundManager.playPass();
@@ -229,7 +262,7 @@ export const App: React.FC = () => {
         }
       }
     },
-    [board, lastMove, mode, rule, unlocked]
+    [board, lastMove, mode, rule, unlocked, bombsRemaining]
   );
 
   // マスクリック時のハンドラ
@@ -241,7 +274,9 @@ export const App: React.FC = () => {
     const move = validMoves.find((m) => m.row === row && m.col === col);
     if (!move) return;
 
-    executeMove(row, col, turn, true);
+    // 爆弾石装填中なら爆弾として着手
+    const willUseBomb = isBombActive && bombsRemaining[turn] > 0;
+    executeMove(row, col, turn, willUseBomb, true);
   };
 
   // CPU自動着手
@@ -250,16 +285,16 @@ export const App: React.FC = () => {
       setIsAiThinking(true);
       const delay = Math.random() * 300 + 500;
       const timer = setTimeout(() => {
-        const aiMove = calculateAiMove(board, 'white', aiLevel, rule, unlocked);
+        const aiMove = calculateAiMove(board, 'white', aiLevel, rule, unlocked, bombsRemaining.white);
         if (aiMove) {
-          executeMove(aiMove.row, aiMove.col, 'white', false);
+          executeMove(aiMove.row, aiMove.col, 'white', !!aiMove.isBomb, false);
         }
         setIsAiThinking(false);
       }, delay);
 
       return () => clearTimeout(timer);
     }
-  }, [board, turn, mode, aiLevel, isFinished, rule, unlocked, executeMove]);
+  }, [board, turn, mode, aiLevel, isFinished, rule, unlocked, bombsRemaining.white, executeMove]);
 
   // 終局検知
   useEffect(() => {
@@ -281,8 +316,10 @@ export const App: React.FC = () => {
         const target = history[history.length - 2];
         setBoard(target.board);
         setUnlocked(target.unlocked);
+        setBombsRemaining(target.bombsRemaining);
         setTurn('black');
         setLastMove(target.lastMove);
+        setIsLastMoveBomb(target.isLastMoveBomb);
         setHistory((prev) => prev.slice(0, prev.length - 2));
       } else if (history.length === 1) {
         handleResetGame();
@@ -291,10 +328,13 @@ export const App: React.FC = () => {
       const last = history[history.length - 1];
       setBoard(last.board);
       setUnlocked(last.unlocked);
+      setBombsRemaining(last.bombsRemaining);
       setTurn(last.turn);
       setLastMove(last.lastMove);
+      setIsLastMoveBomb(last.isLastMoveBomb);
       setHistory((prev) => prev.slice(0, prev.length - 1));
     }
+    setIsBombActive(false);
     setPassMessage(null);
     setZoneAlertMessage(null);
   };
@@ -313,6 +353,13 @@ export const App: React.FC = () => {
   const handleToggleSound = () => {
     const muted = soundManager.toggleMute();
     setIsMuted(muted);
+  };
+
+  // 爆弾石トグル
+  const handleToggleBomb = () => {
+    if (bombsRemaining[turn] > 0) {
+      setIsBombActive(!isBombActive);
+    }
   };
 
   // モード選択
@@ -340,7 +387,6 @@ export const App: React.FC = () => {
     setIsOnlineModalOpen(true);
   };
 
-  // オンライン部屋作成
   const handleCreateOnlineRoom = async () => {
     try {
       const code = await p2pManager.createRoom();
@@ -351,7 +397,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // オンライン部屋参加
   const handleJoinOnlineRoom = async (code: string) => {
     try {
       await p2pManager.joinRoom(code);
@@ -361,6 +406,8 @@ export const App: React.FC = () => {
       alert('部屋への接続に失敗しました。コードをご確認ください。');
     }
   };
+
+  const currentTurnBombs = bombsRemaining[turn] || 0;
 
   return (
     <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-2 sm:p-4 max-w-[500px] mx-auto w-full selection:bg-emerald-500 selection:text-white">
@@ -374,7 +421,13 @@ export const App: React.FC = () => {
             <h1 className="text-sm sm:text-base font-black tracking-tight text-white flex items-center gap-1.5">
               <span>対戦オセロ</span>
               <span className="text-[9px] text-amber-400 font-mono bg-amber-950/80 border border-amber-800/80 px-1 py-0.2 rounded font-bold">
-                {rule === 'fortress' ? '要塞モード' : '通常'}
+                {rule === 'chaos'
+                  ? '拡張＋爆弾'
+                  : rule === 'bomb'
+                  ? '爆弾石'
+                  : rule === 'fortress'
+                  ? '盤面拡張'
+                  : '通常 8×8'}
               </span>
             </h1>
           </div>
@@ -393,13 +446,13 @@ export const App: React.FC = () => {
 
       {/* メインゲーム領域 */}
       <main className="w-full flex-1 flex flex-col items-center justify-center py-0.5">
-        {/* 手番・スコアヘッダー */}
         <GameHeader
           score={score}
           turn={turn}
           mode={mode}
           rule={rule}
           unlocked={unlocked}
+          bombsRemaining={bombsRemaining}
           aiLevel={aiLevel}
           myColor={myOnlineColor}
           isAiThinking={isAiThinking}
@@ -407,13 +460,14 @@ export const App: React.FC = () => {
           zoneAlertMessage={zoneAlertMessage}
         />
 
-        {/* オセロ盤（通常 8x8 または 四隅要塞 14x14） */}
         <Board
           board={board}
           rule={rule}
           unlocked={unlocked}
           validMoves={validMoves}
           lastMove={lastMove}
+          isLastMoveBomb={isLastMoveBomb}
+          isBombShaking={isBombShaking}
           flippingPositions={flippingPositions}
           newlyUnlockedZone={newlyUnlockedZone}
           turn={turn}
@@ -426,11 +480,14 @@ export const App: React.FC = () => {
           }
         />
 
-        {/* 下部コントロールツールバー */}
         <GameControls
           mode={mode}
+          rule={rule}
+          bombsAvailable={currentTurnBombs}
+          isBombActive={isBombActive}
           canUndo={history.length > 0}
           isMuted={isMuted}
+          onToggleBomb={handleToggleBomb}
           onUndo={handleUndo}
           onReset={() => handleResetGame()}
           onResign={handleResign}
@@ -442,7 +499,7 @@ export const App: React.FC = () => {
 
       {/* フッター */}
       <footer className="w-full text-center text-[9px] text-slate-500 py-0.5">
-        四隅要塞オセロ © 2026 • マサ考案スペシャルエディション
+        対戦オセロ (Reversi) © 2026 • マサ専用エディション
       </footer>
 
       {/* モード選択モーダル */}
@@ -457,7 +514,6 @@ export const App: React.FC = () => {
         onClose={() => setIsModeModalOpen(false)}
       />
 
-      {/* オンライン対戦モーダル */}
       <OnlineModal
         isOpen={isOnlineModalOpen}
         status={onlineStatus}
@@ -468,7 +524,6 @@ export const App: React.FC = () => {
         onClose={() => setIsOnlineModalOpen(false)}
       />
 
-      {/* 終局（勝敗判定）モーダル */}
       <GameOverModal
         isOpen={isGameOverModalOpen}
         winner={winner}

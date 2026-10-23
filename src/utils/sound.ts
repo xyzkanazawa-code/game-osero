@@ -164,6 +164,61 @@ class SoundManager {
   }
 
   /**
+   * 💣 爆弾石（ボムストーン）の大爆発音！ドォォン！！
+   */
+  public playExplosion() {
+    if (this.isMuted) return;
+    this.initContext();
+    if (!this.ctx) return;
+
+    const t = this.ctx.currentTime;
+
+    // 1. ノイズバッファで爆破の風圧・破砕音を生成
+    const bufferSize = this.ctx.sampleRate * 0.5;
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    // ローパスフィルターで重低音の「ドカン」に加工
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, t);
+    filter.frequency.exponentialRampToValueAtTime(80, t + 0.45);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.8, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.ctx.destination);
+
+    noise.start(t);
+    noise.stop(t + 0.55);
+
+    // 2. 超低周波オシレーターで地響き
+    const rumble = this.ctx.createOscillator();
+    const rumbleGain = this.ctx.createGain();
+    rumble.type = 'sawtooth';
+    rumble.frequency.setValueAtTime(120, t);
+    rumble.frequency.exponentialRampToValueAtTime(20, t + 0.6);
+
+    rumbleGain.gain.setValueAtTime(0.7, t);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.01, t + 0.6);
+
+    rumble.connect(rumbleGain);
+    rumbleGain.connect(this.ctx.destination);
+
+    rumble.start(t);
+    rumble.stop(t + 0.65);
+  }
+
+  /**
    * 🏰 四隅エリア解放（要塞出現）時の大迫力エフェクト音
    */
   public playZoneUnlock() {

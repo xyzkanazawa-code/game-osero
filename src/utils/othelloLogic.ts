@@ -8,9 +8,8 @@ import {
   UnlockedZones
 } from '../types/othello';
 
-// グリッドサイズ: 中央8x8 + 4隅の3x3を内包する 14x14
 export const GRID_SIZE = 14;
-export const OFFSET = 3; // 中央8x8は行3..10, 列3..10
+export const OFFSET = 3;
 
 // 8方向ベクトル [dRow, dCol]
 export const DIRECTIONS: [number, number][] = [
@@ -27,14 +26,6 @@ export const ORIGINAL_CORNERS = {
   bottomRight: { row: 10, col: 10 }
 };
 
-// 新エリア（四隅3x3）の範囲
-export const FORTRESS_ZONES = {
-  topLeft: { minR: 0, maxR: 2, minC: 0, maxC: 2 },
-  topRight: { minR: 0, maxR: 2, minC: 11, maxC: 13 },
-  bottomLeft: { minR: 11, maxR: 13, minC: 0, maxC: 2 },
-  bottomRight: { minR: 11, maxR: 13, minC: 11, maxC: 13 }
-};
-
 /**
  * 初期盤面の生成
  */
@@ -43,8 +34,7 @@ export const createInitialBoard = (rule: RuleType = 'classic'): CellValue[][] =>
     .fill(null)
     .map(() => Array(GRID_SIZE).fill(null));
 
-  // 中央4石（通常のオセロ配置）
-  // 3+3=6, 3+4=7
+  // 中央4石
   board[6][6] = 'white';
   board[6][7] = 'black';
   board[7][6] = 'black';
@@ -81,10 +71,10 @@ export const isCellActive = (
     return true;
   }
 
-  // classicルールの場合は中央8x8のみ
-  if (rule === 'classic') return false;
+  // classic や bomb ルール（通常サイズ）の場合は中央8x8のみ
+  if (rule === 'classic' || rule === 'bomb') return false;
 
-  // 2. 解放された四隅3x3ゾーン
+  // 2. 解放された四隅3x3ゾーン（fortress または chaos）
   if (unlocked.topLeft && row <= 2 && col <= 2) return true;
   if (unlocked.topRight && row <= 2 && col >= 11) return true;
   if (unlocked.bottomLeft && row >= 11 && col <= 2) return true;
@@ -101,7 +91,7 @@ export const getOpponent = (player: Player): Player => {
 };
 
 /**
- * 特定のマスに石を置いた時に裏返せる相手の石の座標リストを取得
+ * 通常の挟み込みによる反転座標リストを取得
  */
 export const getFlippedPositions = (
   board: CellValue[][],
@@ -111,7 +101,6 @@ export const getFlippedPositions = (
   rule: RuleType,
   unlocked: UnlockedZones
 ): Position[] => {
-  // そのマス自体がアクティブで空マスでないと置けない
   if (!isCellActive(row, col, rule, unlocked) || board[row][col] !== null) {
     return [];
   }
@@ -124,20 +113,46 @@ export const getFlippedPositions = (
     let r = row + dr;
     let c = col + dc;
 
-    // 相手の石が連続しているかチェック（アクティブなマスのみ）
     while (isCellActive(r, c, rule, unlocked) && board[r][c] === opponent) {
       directionFlipped.push({ row: r, col: c });
       r += dr;
       c += dc;
     }
 
-    // 相手の石の先に自分の石があれば、その列の石は裏返せる
     if (directionFlipped.length > 0 && isCellActive(r, c, rule, unlocked) && board[r][c] === player) {
       flippable.push(...directionFlipped);
     }
   }
 
   return flippable;
+};
+
+/**
+ * 爆弾石投下時の周囲爆破対象リストを取得（周囲3x3の相手石）
+ */
+export const getBombExplodedPositions = (
+  board: CellValue[][],
+  row: number,
+  col: number,
+  player: Player,
+  rule: RuleType,
+  unlocked: UnlockedZones
+): Position[] => {
+  const opponent = getOpponent(player);
+  const exploded: Position[] = [];
+
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const r = row + dr;
+      const c = col + dc;
+      if (isCellActive(r, c, rule, unlocked) && board[r][c] === opponent) {
+        exploded.push({ row: r, col: c });
+      }
+    }
+  }
+
+  return exploded;
 };
 
 /**
@@ -171,7 +186,7 @@ export const getValidMoves = (
 };
 
 /**
- * 着手によってアンロックされる角ゾーンを判定
+ * 着手によってアンロックされる角ゾーンを判定（fortress または chaos）
  */
 export const checkNewlyUnlockedZone = (
   row: number,
@@ -179,7 +194,7 @@ export const checkNewlyUnlockedZone = (
   rule: RuleType,
   unlocked: UnlockedZones
 ): keyof UnlockedZones | null => {
-  if (rule !== 'fortress') return null;
+  if (rule !== 'fortress' && rule !== 'chaos') return null;
 
   if (row === ORIGINAL_CORNERS.topLeft.row && col === ORIGINAL_CORNERS.topLeft.col && !unlocked.topLeft) {
     return 'topLeft';
@@ -198,7 +213,7 @@ export const checkNewlyUnlockedZone = (
 };
 
 /**
- * 石を配置して盤面を更新
+ * 石を配置して盤面を更新（通常石または爆弾石）
  */
 export const applyMove = (
   board: CellValue[][],
@@ -206,38 +221,62 @@ export const applyMove = (
   col: number,
   player: Player,
   rule: RuleType,
-  unlocked: UnlockedZones
+  unlocked: UnlockedZones,
+  isBomb: boolean = false
 ): {
   nextBoard: CellValue[][];
   flipped: Position[];
+  exploded: Position[];
   nextUnlocked: UnlockedZones;
   newZoneUnlocked: keyof UnlockedZones | null;
 } => {
-  const flipped = getFlippedPositions(board, row, col, player, rule, unlocked);
-  if (flipped.length === 0) {
+  const standardFlipped = getFlippedPositions(board, row, col, player, rule, unlocked);
+  if (standardFlipped.length === 0) {
     throw new Error(`無効な着手です: (${row}, ${col}) for ${player}`);
   }
 
-  // 盤面のディープコピー
   const nextBoard: CellValue[][] = board.map((r) => [...r]);
   nextBoard[row][col] = player;
 
-  for (const pos of flipped) {
+  // 通常反転
+  for (const pos of standardFlipped) {
     nextBoard[pos.row][pos.col] = player;
   }
 
-  // 角到達によるゾーン解放判定
+  // 💣 爆弾石の場合: 周囲3x3の相手石もすべて爆破自色化！
+  let exploded: Position[] = [];
+  if (isBomb) {
+    exploded = getBombExplodedPositions(board, row, col, player, rule, unlocked);
+    for (const pos of exploded) {
+      nextBoard[pos.row][pos.col] = player;
+    }
+  }
+
+  // 統合反転リスト（重複除去）
+  const allFlippedMap = new Map<string, Position>();
+  for (const p of [...standardFlipped, ...exploded]) {
+    allFlippedMap.set(`${p.row},${p.col}`, p);
+  }
+  const flipped = Array.from(allFlippedMap.values());
+
+  // 四隅拡張判定
   const newZone = checkNewlyUnlockedZone(row, col, rule, unlocked);
   const nextUnlocked = { ...unlocked };
   if (newZone) {
     nextUnlocked[newZone] = true;
   }
 
-  return { nextBoard, flipped, nextUnlocked, newZoneUnlocked: newZone };
+  return {
+    nextBoard,
+    flipped,
+    exploded,
+    nextUnlocked,
+    newZoneUnlocked: newZone
+  };
 };
 
 /**
- * 現在の石数をカウント（有効マスのみ）
+ * 現在の石数をカウント
  */
 export const countScore = (
   board: CellValue[][],

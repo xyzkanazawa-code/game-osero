@@ -9,6 +9,7 @@ interface CellProps {
   isFlipping: boolean;
   flipTarget: 'black' | 'white' | null;
   isLastMove: boolean;
+  isLastBomb?: boolean;
   isValidMove: boolean;
   flipCount: number;
   isNewlyUnlocked?: boolean;
@@ -24,6 +25,7 @@ export const Cell: React.FC<CellProps> = ({
   isFlipping,
   flipTarget,
   isLastMove,
+  isLastBomb,
   isValidMove,
   flipCount,
   isNewlyUnlocked,
@@ -76,17 +78,21 @@ export const Cell: React.FC<CellProps> = ({
               // 黒石
               <div className="w-full h-full rounded-full bg-gradient-to-br from-slate-700 via-slate-900 to-black flex items-center justify-center border border-slate-950 relative overflow-hidden shadow-inner">
                 <div className="absolute top-[12%] left-[18%] w-[35%] h-[35%] bg-white/15 rounded-full blur-[1px]" />
-                {isLastMove && (
+                {isLastBomb ? (
+                  <span className="text-[12px] sm:text-sm animate-bounce pointer-events-none">💣</span>
+                ) : isLastMove ? (
                   <span className="w-2.5 h-2.5 bg-amber-400 rounded-full ring-2 ring-amber-300/60 shadow-lg animate-pulse" />
-                )}
+                ) : null}
               </div>
             ) : (
               // 白石
               <div className="w-full h-full rounded-full bg-gradient-to-br from-white via-slate-100 to-slate-300 flex items-center justify-center border border-slate-300 relative overflow-hidden shadow-inner">
                 <div className="absolute top-[12%] left-[18%] w-[35%] h-[35%] bg-white/80 rounded-full blur-[1px]" />
-                {isLastMove && (
+                {isLastBomb ? (
+                  <span className="text-[12px] sm:text-sm animate-bounce pointer-events-none">💣</span>
+                ) : isLastMove ? (
                   <span className="w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-rose-400/60 shadow-lg animate-pulse" />
-                )}
+                ) : null}
               </div>
             )}
           </div>
